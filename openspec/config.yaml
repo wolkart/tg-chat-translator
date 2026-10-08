@@ -13,8 +13,8 @@ context: |
   раздел «Переводчик».
 
   Режимы:
-  - личка: бот подключён к аккаунту владельца (Telegram Business / Chat Automation,
-    нужен Premium). Собеседник пишет владельцу в обычную личку; владелец читает перевод
+  - личка: бот подключён к аккаунту владельца (Chat Automation; нужен ли владельцу
+    Premium — проверяется, собеседнику не нужно ничего). Собеседник пишет владельцу в обычную личку; владелец читает перевод
     и отвечает в теме «собеседник» в чате с ботом; бот отправляет перевод от имени
     владельца. Правило суток: от имени владельца можно писать только в чат, где
     собеседник сам писал за последние 24 часа;
@@ -61,11 +61,9 @@ context: |
 # Per-operation guidance (optional)
 # Add advisory guidance for how apply and archive work should be conducted.
 # This is separate from artifact rules above.
-# Example:
-#   operations:
-#     apply:
-#       guidance:
-#         - Keep test summaries concise
-#     archive:
-#       guidance:
-#         - Summarize the archive outcome before finishing
+operations:
+  apply:
+    guidance:
+      - "TDD: сначала тест, убедиться, что он падает по ожидаемой причине, потом код до зелёного."
+      - "Платформа или провайдер ведут себя не так, как в спеке, задача требует больше спеки или тянет сузить описанное поведение — остановиться и спросить автора, ничего не исправляя."
+      - "Перед /opsx:archive — /code-review high и /simplify по всему изменению; /security-review, если затронуты чужой текст, ключи или внешние адреса."
