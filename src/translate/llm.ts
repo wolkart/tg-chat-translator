@@ -70,7 +70,7 @@ export function buildPrompt(
   return { system, user }
 }
 
-const QUOTE_PAIRS: Record<string, string> = { '"': '"', '«': '»', '“': '”', '„': '"', "'": "'" }
+const QUOTE_PAIRS: Record<string, string> = { '"': '"', '«': '»', '“': '”', '„': '“', "'": "'" }
 
 /** Модели любят заворачивать ответ в кавычки — снимаем одну обрамляющую пару. */
 export function stripQuotes(text: string): string {

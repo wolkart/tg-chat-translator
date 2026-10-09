@@ -95,6 +95,7 @@ test('промпт: дополнительный фрагмент встаёт �
 test('stripQuotes снимает одну обрамляющую пару', () => {
   assert.equal(stripQuotes('"Как дела?"'), 'Как дела?')
   assert.equal(stripQuotes('«Как дела?»'), 'Как дела?')
+  assert.equal(stripQuotes('„Hallo“'), 'Hallo')
   assert.equal(stripQuotes('Он сказал "да"'), 'Он сказал "да"')
   assert.equal(stripQuotes('  Привет  '), 'Привет')
 })
