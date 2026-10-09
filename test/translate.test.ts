@@ -98,6 +98,8 @@ test('stripQuotes снимает одну обрамляющую пару', () =
   assert.equal(stripQuotes('„Hallo“'), 'Hallo')
   assert.equal(stripQuotes('Он сказал "да"'), 'Он сказал "да"')
   assert.equal(stripQuotes('  Привет  '), 'Привет')
+  assert.equal(stripQuotes('«Да» или «нет»'), '«Да» или «нет»')
+  assert.equal(stripQuotes('"A" and "B"'), '"A" and "B"')
 })
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -147,4 +149,42 @@ test('вызов модели: пустой ответ — ошибка', async 
   const fetchImpl = (async () => jsonResponse({ choices: [{ message: { content: '  ' } }] })) as typeof fetch
   const translate = createTranslator({ ...config, fetchImpl })
   await assert.rejects(translate({ target: ru, history: [], text: 'hi' }), /пустой ответ/)
+})
+
+test('вызов модели: тело ответа не JSON — ошибка', async () => {
+  const fetchImpl = (async () => new Response('<html>gateway error</html>', { status: 200, headers: { 'content-type': 'text/html' } })) as typeof fetch
+  const translate = createTranslator({ ...config, fetchImpl })
+  await assert.rejects(translate({ target: ru, history: [], text: 'hi' }), (error: unknown) => {
+    assert.ok(error instanceof TranslationError)
+    assert.match(error.message, /не JSON/)
+    return true
+  })
+})
+
+test('вызов модели: содержимое не строка — ошибка пустого ответа', async () => {
+  const fetchImpl = (async () => jsonResponse({ choices: [{ message: { content: ['x'] } }] })) as typeof fetch
+  const translate = createTranslator({ ...config, fetchImpl })
+  await assert.rejects(translate({ target: ru, history: [], text: 'hi' }), /пустой ответ/)
+})
+
+test('вызов модели: таймаут при чтении тела — ошибка перевода', async () => {
+  const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
+    // 200 response, но чтение тела ждёт сигнала abort
+    return new Response(
+      new ReadableStream({
+        start(controller) {
+          init?.signal?.addEventListener('abort', () => {
+            controller.close()
+          })
+        },
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    )
+  }) as typeof fetch
+  const translate = createTranslator({ ...config, fetchImpl, timeoutMs: 20 })
+  await assert.rejects(translate({ target: ru, history: [], text: 'hi' }), (error: unknown) => {
+    assert.ok(error instanceof TranslationError)
+    assert.match(error.message, /не ответила/)
+    return true
+  })
 })

@@ -75,9 +75,13 @@ const QUOTE_PAIRS: Record<string, string> = { '"': '"', '«': '»', '“': '”'
 /** Модели любят заворачивать ответ в кавычки — снимаем одну обрамляющую пару. */
 export function stripQuotes(text: string): string {
   const trimmed = text.trim()
-  const close = QUOTE_PAIRS[trimmed[0] ?? '']
-  if (close && trimmed.length >= 2 && trimmed.endsWith(close)) return trimmed.slice(1, -1).trim()
-  return trimmed
+  const open = trimmed[0] ?? ''
+  const close = QUOTE_PAIRS[open]
+  if (!close || trimmed.length < 2 || !trimmed.endsWith(close)) return trimmed
+  // иначе «Да» или «нет» потеряло бы кавычки посередине
+  const inner = trimmed.slice(1, -1)
+  if (inner.includes(open) || inner.includes(close)) return trimmed
+  return inner.trim()
 }
 
 export const TRANSLATE_TIMEOUT_MS = 30_000
@@ -98,12 +102,13 @@ export function createTranslator(config: {
   return async (request) => {
     const { system, user } = buildPrompt(request, config.fragments)
 
+    const signal = AbortSignal.timeout(timeoutMs)
     let response: Response
     try {
       response = await fetchImpl(`${config.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: { authorization: `Bearer ${config.apiKey}`, 'content-type': 'application/json' },
-        signal: AbortSignal.timeout(timeoutMs),
+        signal,
         body: JSON.stringify({
           model: config.model,
           // Низкая температура: переводу нужна точность, а не фантазия.
@@ -114,26 +119,40 @@ export function createTranslator(config: {
           ],
         }),
       })
+
+      if (!response.ok) {
+        const body = (await response.text()).slice(0, 300)
+        throw new TranslationError(`${config.label} ответил ошибкой ${response.status}: ${body}`)
+      }
+
+      let data: { choices?: { message?: { content?: unknown } }[]; error?: { message?: string } }
+      try {
+        data = (await response.json()) as typeof data
+      } catch (error) {
+        if (error instanceof Error && error.name === 'TimeoutError') {
+          throw error  // Re-throw so outer catch handles it
+        }
+        // Если сигнал был abort (например, из-за timeout), то это also timeout error
+        if (signal.aborted && signal.reason instanceof Error && signal.reason.name === 'TimeoutError') {
+          throw signal.reason
+        }
+        throw new TranslationError(`${config.label} вернул не JSON`)
+      }
+
+      if (data.error) throw new TranslationError(`${config.label}: ${data.error.message ?? 'неизвестная ошибка'}`)
+
+      const rawContent = data.choices?.[0]?.message?.content
+      if (typeof rawContent !== 'string') throw new TranslationError('модель вернула пустой ответ')
+
+      const content = stripQuotes(rawContent)
+      if (!content) throw new TranslationError('модель вернула пустой ответ')
+      return content
     } catch (error) {
+      if (error instanceof TranslationError) throw error
       if (error instanceof Error && error.name === 'TimeoutError') {
         throw new TranslationError(`модель не ответила за ${Math.round(timeoutMs / 1000)} с`)
       }
       throw new TranslationError(`${config.label} недоступен: ${error instanceof Error ? error.message : String(error)}`)
     }
-
-    if (!response.ok) {
-      const body = (await response.text()).slice(0, 300)
-      throw new TranslationError(`${config.label} ответил ошибкой ${response.status}: ${body}`)
-    }
-
-    const data = (await response.json()) as {
-      choices?: { message?: { content?: string } }[]
-      error?: { message?: string }
-    }
-    if (data.error) throw new TranslationError(`${config.label}: ${data.error.message ?? 'неизвестная ошибка'}`)
-
-    const content = stripQuotes(data.choices?.[0]?.message?.content ?? '')
-    if (!content) throw new TranslationError('модель вернула пустой ответ')
-    return content
   }
 }
