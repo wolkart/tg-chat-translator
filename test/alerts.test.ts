@@ -81,3 +81,39 @@ test('консоль идёт через ту же замену секретов
   alerts.log('token=123456:bot-token-value')
   assert.ok(printed[0]!.endsWith('token=***'))
 })
+
+test('сорвавшаяся отправка не включает троттлинг: повтор пытается отправить снова', async () => {
+  const { tg, alerts } = setup()
+  tg.failNext('sendText', new TelegramError(502, 'Bad Gateway'))
+  await alerts.general('error-key', 'ошибка раз')
+  // Первая попытка упала, но мы вызовем её с тем же ключом ещё раз.
+  tg.failNext('sendText', new TelegramError(502, 'Bad Gateway'))
+  await alerts.general('error-key', 'ошибка два')
+  // Вторая попытка тоже упала, но заметим: если б первая уважалась для троттлинга,
+  // второй вызов был бы подавлен. Вместо этого мы видим две попытки в очереди вызовов.
+  const calls = tg.callsOf('sendText')
+  assert.equal(calls.length, 2, 'обе попытки были сделаны, так как первая упала')
+  assert.equal(calls[0]!.text, 'ошибка раз')
+  assert.equal(calls[1]!.text, 'ошибка два')
+})
+
+test('секрет в URL-кодировке тоже скрыт', () => {
+  const scrub = createScrubber(['123456789:ABCdefGHIjkl'])
+  // Token с : становится 123456789%3AABCdefGHIjkl в URL.
+  const result = scrub('Token 123456789%3AABCdefGHIjkl in query')
+  assert.equal(result, 'Token *** in query')
+  // Исходная форма тоже скрыта.
+  const result2 = scrub('Token 123456789:ABCdefGHIjkl in header')
+  assert.equal(result2, 'Token *** in header')
+})
+
+test('перекрывающиеся секреты заменяются одним ***', () => {
+  const scrub = createScrubber(['AAAAAAAAAXYZ', 'XYZBBBBBBBBB'])
+  // Когда AAAAAAAAAXYZ и XYZBBBBBBBBB встречаются подряд, их диапазоны перекрываются в AAAAAAAAA|XYZ|BBBBBBBBB.
+  // Должно получиться один *** вместо двух.
+  const result = scrub('Prefix AAAAAAAAAXYZBBBBBBBBB Suffix')
+  assert.equal(result, 'Prefix *** Suffix')
+  // Убедимся, что ни AAAA ни BBBB не прошли.
+  assert.ok(!result.includes('AAAA'))
+  assert.ok(!result.includes('BBBB'))
+})

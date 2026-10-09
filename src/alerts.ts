@@ -6,12 +6,62 @@ const SECRET_MIN_LENGTH = 9
 /**
  * Замена секретов на ***. Ошибки внешних сервисов иногда цитируют запрос целиком —
  * вместе с ключом или токеном в адресе. Владелец и консоль их видеть не должны.
+ * Укрывает как исходные значения, так и URL-кодированные варианты (`:` → `%3A`).
+ * Объединяет перекрывающиеся или соседние диапазоны в один `***`.
  */
 export function createScrubber(secrets: readonly string[]): (text: string) => string {
-  const values = [...new Set(secrets.filter((value) => value.length >= SECRET_MIN_LENGTH))].sort(
-    (a, b) => b.length - a.length,
-  )
-  return (text) => values.reduce((result, value) => result.split(value).join('***'), text)
+  // Собираем все варианты: исходные и URL-кодированные.
+  const variants = new Set<string>()
+  for (const value of secrets) {
+    if (value.length >= SECRET_MIN_LENGTH) {
+      variants.add(value)
+      const encoded = encodeURIComponent(value)
+      if (encoded !== value) {
+        variants.add(encoded)
+      }
+    }
+  }
+
+  return (text) => {
+    if (variants.size === 0) return text
+
+    // Находим все вхождения всех вариантов и собираем диапазоны [start, end).
+    const ranges: Array<[number, number]> = []
+    for (const variant of variants) {
+      let index = 0
+      while ((index = text.indexOf(variant, index)) !== -1) {
+        ranges.push([index, index + variant.length])
+        index += 1
+      }
+    }
+
+    if (ranges.length === 0) return text
+
+    // Сортируем по началу, затем объединяем перекрывающиеся или соседние диапазоны.
+    ranges.sort((a, b) => a[0] - b[0])
+    const merged: Array<[number, number]> = [ranges[0]!]
+    for (let i = 1; i < ranges.length; i++) {
+      const current = ranges[i]!
+      const last = merged[merged.length - 1]!
+      if (current[0] <= last[1]) {
+        // Перекрытие или соседство: объединяем.
+        last[1] = Math.max(last[1], current[1])
+      } else {
+        // Зазор: добавляем новый диапазон.
+        merged.push(current)
+      }
+    }
+
+    // Строим результат, заменяя каждый диапазон на ***.
+    let result = ''
+    let lastEnd = 0
+    for (const [start, end] of merged) {
+      result += text.slice(lastEnd, start) + '***'
+      lastEnd = end
+    }
+    result += text.slice(lastEnd)
+    return result
+  }
 }
 
 /** Одинаковое общее сообщение — не чаще раза в 10 минут: лёгший провайдер не должен засыпать чат. */
@@ -42,13 +92,16 @@ export function createAlerts(deps: {
   const log = (text: string) => print(`[${new Date(now()).toISOString()}] ${deps.scrub(text)}`)
 
   // Оповещение не должно ронять бота: если Telegram недоступен, остаётся консоль.
-  async function send(text: string, threadId?: number): Promise<void> {
+  // Возвращает true, если отправка прошла, false если упала.
+  async function send(text: string, threadId?: number): Promise<boolean> {
     const clean = deps.scrub(text)
     log(clean)
     try {
       await deps.api.sendText(deps.ownerChatId, clean, threadId === undefined ? {} : { threadId })
+      return true
     } catch (error) {
       log(`не удалось отправить оповещение владельцу: ${describeError(error)}`)
+      return false
     }
   }
 
@@ -59,11 +112,27 @@ export function createAlerts(deps: {
         log(`(повтор, владельцу не отправлено) ${text}`)
         return
       }
+      // Сорвавшаяся отправка не должна включать троттлинг: если владелец не получил
+      // сообщение, повтор не должен быть подавлен. Только успешная отправка начинает
+      // отсчёт 10-минутного окна.
+      const previousTimestamp = lastSent.get(key)
       lastSent.set(key, now())
+      const sent = await send(text)
+      if (!sent) {
+        // Отправка упала: восстанавливаем предыдущее состояние.
+        if (previousTimestamp === undefined) {
+          lastSent.delete(key)
+        } else {
+          lastSent.set(key, previousTimestamp)
+        }
+      }
+    },
+    async notify(text) {
       await send(text)
     },
-    notify: (text) => send(text),
-    inTopic: (threadId, text) => send(text, threadId),
+    async inTopic(threadId, text) {
+      await send(text, threadId)
+    },
     log,
   }
 }
