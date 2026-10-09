@@ -55,7 +55,8 @@ export const alphabetDetector: Detector = (text, owner) => {
 
   if (owner.letters) {
     const alphabet = new Set(owner.letters)
-    if (own.some((letter) => !alphabet.has(letter.toLowerCase()))) return 'foreign'
+    // Турецкая İ в нижнем регистре без локали распадается на две кодовые точки.
+    if (own.some((letter) => !alphabet.has(letter.toLocaleLowerCase(owner.code)))) return 'foreign'
   }
   return 'native'
 }

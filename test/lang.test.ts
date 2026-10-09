@@ -53,6 +53,11 @@ test('вьетнамский в разложенном виде узнаётся
   assert.equal(detectLanguage(decomposed, en), 'foreign')
 })
 
+test('турецкая İ у владельца — своя буква', () => {
+  const tr = getProfile('tr')!
+  assert.equal(detectLanguage('İstanbul çok güzel', tr), 'native')
+})
+
 test('детектор не ходит в сеть', () => {
   const original = globalThis.fetch
   globalThis.fetch = (() => {
