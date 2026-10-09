@@ -69,12 +69,21 @@ test('лестница: file_id не принят — файл скачивае�
   assert.ok(tg.callsOf('sendMedia')[1]!.file instanceof Uint8Array)
 })
 
-test('лестница: падают обе ступени — отказ с причиной', async () => {
+test('лестница: обе ступени падают одинаково — одна ошибка в результате', async () => {
   const tg = fakeTelegram()
-  tg.failNext('sendMedia', new TelegramError(400, 'wrong file identifier'))
+  tg.failNext('sendMedia', new TelegramError(400, 'file is temporarily unavailable'))
   tg.failNext('downloadFile', new TelegramError(400, 'file is temporarily unavailable'))
   const result = await sendMediaLadder(tg.api, 100001, extractMedia(messageFixture('business-message-peer-voice'))!, {})
   assert.deepEqual(result, { ok: false, reason: 'file is temporarily unavailable' })
+})
+
+test('лестница: первая ступень отказывает (403), вторая упадёт по 20 МБ — видно обе причины', async () => {
+  const tg = fakeTelegram()
+  tg.failNext('sendMedia', new TelegramError(403, 'Forbidden: bot was blocked by the user'))
+  const result = await sendMediaLadder(tg.api, 1, { kind: 'video', fileId: 'BIG', fileSize: DOWNLOAD_LIMIT + 1 }, {})
+  assert.equal(result.ok, false)
+  assert.match(result.reason, /bot was blocked/)
+  assert.match(result.reason, /20 МБ/)
 })
 
 test('лестница: файл больше 20 МБ не скачивается', async () => {

@@ -140,6 +140,7 @@ export async function sendMediaLadder(
     },
   ]
 
+  let firstError: unknown
   let lastError: unknown
   for (const rung of rungs) {
     let messageId: number
@@ -147,6 +148,7 @@ export async function sendMediaLadder(
       messageId = await rung()
     } catch (error) {
       if (rethrow?.(error)) throw error
+      if (!firstError) firstError = error
       lastError = error
       continue
     }
@@ -154,5 +156,10 @@ export async function sendMediaLadder(
     if (caption && !captionFits) messageIds.push(await api.sendText(chatId, caption, base))
     return { ok: true, messageIds }
   }
-  return { ok: false, reason: describeError(lastError) }
+  // Сохраняем первую ошибку — она содержит настоящий отказ, например «бот заблокирован».
+  // Если вторая ступень упала по-другому, добавляем её объяснение, иначе молчим.
+  const firstReason = describeError(firstError)
+  const lastReason = describeError(lastError)
+  const reason = firstReason === lastReason ? firstReason : `${firstReason}; заново загрузить не вышло: ${lastReason}`
+  return { ok: false, reason }
 }
