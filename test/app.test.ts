@@ -1,0 +1,215 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import type { Update } from 'grammy/types'
+import { CANT_FORWARD, createApp, statusText } from '../src/app.ts'
+import { CONNECTED } from '../src/channels/private-chat/connection.ts'
+import { NO_TARGET } from '../src/owner/routing.ts'
+import { CONNECTION_ID, OWNER_ID, PEER_ID, fixture } from './helpers.ts'
+import { TelegramError } from '../src/telegram.ts'
+import { setupDeps } from './setup.ts'
+
+function withUpdateId(update: Update, updateId: number): Update {
+  return { ...update, update_id: updateId }
+}
+
+function started(options: Parameters<typeof setupDeps>[0] = {}) {
+  const ctx = setupDeps(options)
+  return { ...ctx, app: createApp(ctx.deps) }
+}
+
+test('подключение, входящее и ответ в теме — весь путь через диспетчер', async () => {
+  const { app, tg, store } = started()
+  await app.handleUpdate(fixture('business-connection-owner'))
+  await app.handleUpdate(fixture('business-message-peer-text'))
+  const conversation = store.findConversationByPeer(OWNER_ID, PEER_ID)!
+  const reply = fixture('owner-message-in-topic')
+  reply.message!.message_thread_id = conversation.topicId!
+  await app.handleUpdate(reply)
+
+  assert.equal(tg.callsOf('sendText')[0]!.text, CONNECTED)
+  const [toPeer] = tg.sentAsOwner()
+  assert.ok(toPeer && toPeer.method === 'sendText')
+  assert.equal(toPeer.text, '[en] Отлично, а ты?')
+  assert.equal(toPeer.opts.businessConnectionId, CONNECTION_ID)
+})
+
+test('один и тот же апдейт ответа владельца дважды — одна отправка собеседнику', async () => {
+  const { app, tg, store, connectOwner } = started()
+  connectOwner()
+  await app.handleUpdate(fixture('business-message-peer-text'))
+  const reply = fixture('owner-message-in-topic')
+  reply.message!.message_thread_id = store.findConversationByPeer(OWNER_ID, PEER_ID)!.topicId!
+  await app.handleUpdate(reply)
+  await app.handleUpdate(reply)
+  assert.equal(tg.sentAsOwner().length, 1)
+})
+
+test('ошибка в одном апдейте — оповещение, следующий обрабатывается как обычно', async () => {
+  const { app, tg, store, connectOwner } = started()
+  connectOwner()
+  tg.failNext('createTopic', new Error('сеть моргнула'))
+  await app.handleUpdate(fixture('business-message-peer-text'))
+  const alert = tg.callsOf('sendText').find((call) => call.text.startsWith('Не удалось обработать сообщение'))
+  assert.ok(alert)
+  assert.match(alert.text, /сеть моргнула/)
+  assert.equal(store.isProcessed(1101), true)
+
+  const next = withUpdateId(fixture('business-message-peer-text'), 1150)
+  next.business_message!.message_id = 650
+  await app.handleUpdate(next)
+  assert.equal(tg.callsOf('createTopic').length, 2)
+  assert.match(tg.callsOf('sendText').at(-1)!.text, /^\[ru\] See you at 7\?/)
+})
+
+test('посторонний пишет боту — ни вызовов API, ни модели, ни записей в базе', async () => {
+  const { app, tg, store, translator, deps } = started()
+  await app.handleUpdate(fixture('owner-message-from-stranger'))
+  assert.equal(tg.calls.length, 0)
+  assert.equal(translator.calls.length, 0)
+  assert.equal(store.activeConversations(400004, deps.now()).length, 0)
+  assert.equal(store.ownerConnection(400004), undefined)
+  assert.equal(store.isProcessed(1206), false)
+})
+
+test('кнопку нажал не владелец — ничего не происходит', async () => {
+  const { app, tg, store } = started()
+  const update = fixture('callback-choose')
+  update.callback_query!.from = { ...update.callback_query!.from, id: 400004 }
+  await app.handleUpdate(update)
+  assert.equal(tg.calls.length, 0)
+  assert.equal(store.isProcessed(1301), false)
+})
+
+test('/start — статус без подключения', async () => {
+  const { app, tg } = started()
+  await app.handleUpdate(fixture('owner-message-start'))
+  const status = tg.callsOf('sendText')[0]!.text
+  assert.match(status, /Подключение к аккаунту: бот его ещё не видел/)
+  assert.match(status, /Языки: русский ↔ английский/)
+  assert.match(status, /Модель: OpenRouter · openai\/gpt-4\.1-mini/)
+})
+
+test('/start — подключение выключено', () => {
+  const { deps, connectOwner } = setupDeps()
+  connectOwner({ isEnabled: false })
+  assert.match(statusText(deps), /Подключение к аккаунту: нет — подключите бота/)
+})
+
+test('/start — статус с подключением без права отвечать', async () => {
+  const { deps, connectOwner } = setupDeps()
+  connectOwner({ canReply: false })
+  const status = statusText(deps)
+  assert.match(status, /Подключение к аккаунту: есть/)
+  assert.match(status, /Ответы на сообщения/)
+})
+
+test('/start — статус показывает, что ключа нет и что прогон холостой', () => {
+  const { deps } = setupDeps({ overrides: { translatorInfo: 'Нет ключа модели — переводить нечем.', dry: true } })
+  const status = statusText(deps)
+  assert.match(status, /Модель: Нет ключа модели/)
+  assert.match(status, /Холостой прогон/)
+})
+
+test('вне тем без активных разговоров — подсказка, никому ничего не уходит', async () => {
+  const { app, tg, connectOwner } = started()
+  connectOwner()
+  await app.handleUpdate(fixture('owner-message-outside'))
+  assert.equal(tg.sentAsOwner().length, 0)
+  assert.equal(tg.callsOf('sendText')[0]!.text, NO_TARGET)
+})
+
+test('ответ «Ответить» в ленте «Все» уходит собеседнику без «✓»', async () => {
+  const { app, tg, store, connectOwner } = started()
+  connectOwner()
+  await app.handleUpdate(fixture('business-message-peer-text'))
+  const reply = fixture('owner-message-reply-all-view')
+  reply.message!.message_thread_id = store.findConversationByPeer(OWNER_ID, PEER_ID)!.topicId!
+  await app.handleUpdate(reply)
+  assert.equal(tg.sentAsOwner().length, 1)
+  assert.ok(!tg.callsOf('sendText').some((call) => call.text.startsWith('✓')))
+})
+
+test('ответ вне темы при одном активном разговоре — ему, с «✓ <имя>»', async () => {
+  const { app, tg, connectOwner } = started()
+  connectOwner()
+  await app.handleUpdate(fixture('business-message-peer-text'))
+  await app.handleUpdate(fixture('owner-message-outside'))
+  assert.equal(tg.sentAsOwner().length, 1)
+  assert.equal(tg.callsOf('sendText').at(-1)!.text, '✓ Alex Peer')
+})
+
+test('несколько активных разговоров: «Кому?» → кнопка → отправка и «Отправлено <имя>»', async () => {
+  const { app, tg, connectOwner } = started()
+  connectOwner()
+  await app.handleUpdate(fixture('business-message-peer-text'))
+  const second = withUpdateId(fixture('business-message-peer-text'), 1160)
+  second.business_message!.chat = { id: 200003, type: 'private', first_name: 'Anna' }
+  second.business_message!.from = { id: 200003, is_bot: false, first_name: 'Anna' }
+  second.business_message!.message_id = 700
+  await app.handleUpdate(second)
+
+  await app.handleUpdate(fixture('owner-message-outside'))
+  const question = tg.callsOf('sendText').find((call) => call.text === 'Кому?')!
+  const annaButton = question.opts.keyboard!.find((row) => row[0]!.text === 'Anna')![0]!
+  const press = fixture('callback-choose')
+  press.callback_query!.data = annaButton.data
+  await app.handleUpdate(press)
+
+  const [toPeer] = tg.sentAsOwner()
+  assert.ok(toPeer && toPeer.method === 'sendText')
+  assert.equal(toPeer.chatId, 200003)
+  assert.equal(tg.callsOf('editText')[0]!.text, 'Отправлено Anna')
+})
+
+test('геопозицию из чата с ботом переслать нельзя — так и говорим', async () => {
+  const { app, tg } = started()
+  const update = fixture('owner-message-outside')
+  delete update.message!.text
+  ;(update.message as unknown as Record<string, unknown>).location = { latitude: 1, longitude: 2 }
+  await app.handleUpdate(update)
+  assert.equal(tg.callsOf('sendText')[0]!.text, CANT_FORWARD)
+})
+
+test('фото владельца в теме уходит собеседнику', async () => {
+  const { app, tg, store, connectOwner } = started()
+  connectOwner()
+  await app.handleUpdate(fixture('business-message-peer-text'))
+  const photo = fixture('owner-message-photo-in-topic')
+  photo.message!.message_thread_id = store.findConversationByPeer(OWNER_ID, PEER_ID)!.topicId!
+  await app.handleUpdate(photo)
+  const [toPeer] = tg.sentAsOwner()
+  assert.ok(toPeer && toPeer.method === 'sendMedia')
+  assert.equal(toPeer.opts.caption, '[en] Это тебе')
+})
+
+test('входящее, доставленное повторно после перезапуска, не дублируется в теме', async () => {
+  const { app, tg, translator, connectOwner } = started()
+  connectOwner()
+  await app.handleUpdate(fixture('business-message-peer-text'))
+  const posted = tg.callsOf('sendText').length
+  await app.handleUpdate(fixture('business-message-peer-text'))
+  assert.equal(tg.callsOf('sendText').length, posted)
+  assert.equal(translator.calls.length, 1)
+})
+
+test('разные поломки в одном обработчике — два оповещения, одинаковая — одно', async () => {
+  const { app, tg, connectOwner } = started()
+  connectOwner()
+  const failing = (updateId: number, messageId: number) => {
+    const update = withUpdateId(fixture('business-message-peer-text'), updateId)
+    update.business_message!.message_id = messageId
+    return update
+  }
+  const alerts = () => tg.callsOf('sendText').filter((call) => call.text.startsWith('Не удалось обработать сообщение'))
+
+  tg.failNext('createTopic', new Error('сеть моргнула'))
+  await app.handleUpdate(failing(1170, 710))
+  tg.failNext('createTopic', new TelegramError(500, 'Internal Server Error'))
+  await app.handleUpdate(failing(1171, 711))
+  assert.equal(alerts().length, 2)
+
+  tg.failNext('createTopic', new TelegramError(500, 'Internal Server Error'))
+  await app.handleUpdate(failing(1172, 712))
+  assert.equal(alerts().length, 2)
+})
+
