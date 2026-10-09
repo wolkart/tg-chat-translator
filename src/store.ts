@@ -142,7 +142,7 @@ export function openStore(path: string) {
         'is_enabled = excluded.is_enabled, allowed = excluded.allowed, updated_at = excluded.updated_at',
     ),
     ownerConnection: db.prepare(
-      'SELECT * FROM connections WHERE owner_id = ? AND allowed = 1 ORDER BY updated_at DESC LIMIT 1',
+      'SELECT * FROM connections WHERE owner_id = ? AND allowed = 1 ORDER BY is_enabled DESC, updated_at DESC LIMIT 1',
     ),
 
     conversationById: db.prepare('SELECT * FROM conversations WHERE id = ?'),
@@ -229,7 +229,10 @@ export function openStore(path: string) {
       )
     },
 
-    /** Последнее подключение владельца, прошедшее политику, — для статуса. */
+    /**
+     * Подключение владельца, прошедшее политику: рабочее важнее свежего, иначе поздний апдейт
+     * старого выключенного подключения заслонил бы живое. Нужно и статусу, и отправке.
+     */
     ownerConnection(ownerId: number): Connection | undefined {
       const row = q.ownerConnection.get(ownerId) as Row | undefined
       return row ? toConnection(row) : undefined

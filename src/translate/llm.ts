@@ -105,7 +105,7 @@ export function createTranslator(config: {
     const signal = AbortSignal.timeout(timeoutMs)
     let response: Response
     try {
-      response = await fetchImpl(`${config.baseUrl}/chat/completions`, {
+      response = await fetchImpl(`${config.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
         method: 'POST',
         headers: { authorization: `Bearer ${config.apiKey}`, 'content-type': 'application/json' },
         signal,
@@ -129,10 +129,8 @@ export function createTranslator(config: {
       try {
         data = (await response.json()) as typeof data
       } catch (error) {
-        if (error instanceof Error && error.name === 'TimeoutError') {
-          throw error  // Re-throw so outer catch handles it
-        }
-        // Если сигнал был abort (например, из-за timeout), то это also timeout error
+        // Тело ответа может оборваться из-за таймаута: тогда причина — не «не JSON», а сам
+        // таймаут, его превратит в понятное сообщение внешний catch.
         if (signal.aborted && signal.reason instanceof Error && signal.reason.name === 'TimeoutError') {
           throw signal.reason
         }

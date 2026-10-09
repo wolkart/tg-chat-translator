@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import type { Message } from 'grammy/types'
 import { onBusinessMessage, parseBusinessMessage } from '../src/channels/private-chat/incoming.ts'
 import { TranslationError } from '../src/translate/llm.ts'
-import { CONNECTION_ID, OWNER_ID, PEER_ID, messageFixture } from './helpers.ts'
+import { BOT_ID, CONNECTION_ID, OWNER_ID, PEER_ID, messageFixture } from './helpers.ts'
 import { fakeTranslator, setupDeps } from './setup.ts'
 
 const ownerConnection = { id: CONNECTION_ID, ownerId: OWNER_ID, userChatId: OWNER_ID, canReply: true, isEnabled: true, allowed: true }
@@ -241,3 +241,52 @@ test('следующее сообщение собеседника обновл�
   assert.notEqual(second, first)
 })
 
+
+function ownerDirect(extra: Record<string, unknown>, messageId: number): Message {
+  const base = { ...messageFixture('business-message-owner-direct'), message_id: messageId } as unknown as Record<string, unknown>
+  delete base.text
+  return { ...base, ...extra } as unknown as Message
+}
+
+test('своё фото владельца без подписи — в теме с пометкой «Вы в личке»', async () => {
+  const { deps, tg, connectOwner } = setupDeps()
+  connectOwner()
+  await onBusinessMessage(deps, messageFixture('business-message-peer-text'))
+  const photo = (messageFixture('business-message-peer-photo') as unknown as { photo: unknown }).photo
+  await onBusinessMessage(deps, ownerDirect({ photo }, 610))
+  const media = tg.callsOf('sendMedia')[0]!
+  assert.equal(media.kind, 'photo')
+  assert.match(String(media.opts.caption), /Вы в личке/)
+})
+
+test('свой стикер владельца — пометка «Вы в личке» отдельным сообщением', async () => {
+  const { deps, tg, connectOwner } = setupDeps()
+  connectOwner()
+  await onBusinessMessage(deps, messageFixture('business-message-peer-text'))
+  const sticker = (messageFixture('business-message-peer-sticker') as unknown as { sticker: unknown }).sticker
+  await onBusinessMessage(deps, ownerDirect({ sticker }, 611))
+  assert.equal(tg.callsOf('sendMedia')[0]!.kind, 'sticker')
+  assert.match(tg.callsOf('sendText').at(-1)!.text, /Вы в личке/)
+})
+
+test('фото собеседника не переслалось — пометка содержит переведённую подпись', async () => {
+  const { deps, tg, connectOwner } = setupDeps()
+  connectOwner()
+  await onBusinessMessage(deps, messageFixture('business-message-peer-text'))
+  tg.failNext('sendMedia', new Error('wrong file identifier'))
+  tg.failNext('downloadFile', new Error('file is too big'))
+  await onBusinessMessage(deps, messageFixture('business-message-peer-photo'))
+  const notice = tg.callsOf('sendText').at(-1)!.text
+  assert.match(notice, /прислал фото — посмотрите в личке/)
+  assert.match(notice, /\[ru\] My new car/)
+})
+
+test('сообщение в чате владельца с самим ботом игнорируется', async () => {
+  const { deps, tg, store, connectOwner } = setupDeps()
+  connectOwner()
+  const before = tg.calls.length
+  const message = { ...messageFixture('business-message-peer-text'), chat: { id: BOT_ID, type: 'private', first_name: 'Bot' } } as unknown as Message
+  await onBusinessMessage(deps, message)
+  assert.equal(tg.calls.length, before)
+  assert.equal(store.findConversationByPeer(OWNER_ID, BOT_ID), undefined)
+})

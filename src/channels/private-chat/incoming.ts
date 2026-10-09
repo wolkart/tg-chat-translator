@@ -8,6 +8,7 @@ import {
   renderCaption,
   renderIncoming,
   renderOwnerDirect,
+  renderOwnerDirectMarker,
   renderOwnerUnsupported,
   renderUnsupported,
   renderUntranslated,
@@ -114,14 +115,16 @@ export function incomingSteps(deps: Deps): Step<Replica>[] {
         const isPeer = replica.direction === 'peer'
 
         if (replica.media) {
-          const caption = replica.text ? captionFor(replica) : undefined
+          // Своё вложение владельца без пометки выглядело бы в теме так, будто его прислал
+          // собеседник, поэтому у owner-direct подпись есть всегда — хотя бы «Вы в личке».
+          const caption = replica.text || replica.direction === 'owner-direct' ? captionFor(replica) : undefined
           const result = await deps.topics.postMedia(conversation, replica.media, caption)
           if (!result.ok) {
             const label = mediaSpec(replica.media.kind).label
-            await deps.topics.postText(
-              conversation,
-              isPeer ? renderUnsupported(conversation.peerName, label) : renderOwnerUnsupported(label),
-            )
+            const notice = isPeer ? renderUnsupported(conversation.peerName, label) : renderOwnerUnsupported(label)
+            // Подпись уже переведена (и оплачена): без вложения перевод остался бы единственным, что можно прочесть.
+            if (caption) notice[0] += `\n${caption}`
+            await deps.topics.postText(conversation, notice)
           }
         } else if (replica.unsupported) {
           await deps.topics.postText(
@@ -154,7 +157,9 @@ function textFor(replica: Replica): string[] {
 }
 
 function captionFor(replica: Replica): string {
-  if (replica.direction === 'owner-direct') return renderOwnerDirect(replica.text).join('')
+  if (replica.direction === 'owner-direct') {
+    return (replica.text ? renderOwnerDirect(replica.text) : renderOwnerDirectMarker()).join('')
+  }
   if (replica.translation) return renderCaption(replica.translation)
   if (replica.translationError) return renderUntranslated(replica.text, replica.translationError).join('')
   return renderCaption(replica.text)
@@ -163,6 +168,8 @@ function captionFor(replica: Replica): string {
 /** Апдейт business_message: подключение → эхо → конвейер. */
 export async function onBusinessMessage(deps: Deps, message: Message): Promise<void> {
   if (!message.business_connection_id) return
+  // Если владелец разрешил боту «все личные чаты», чат с самим ботом не должен становиться разговором.
+  if (message.chat.id === deps.botId) return
   const connection = await ensureConnection(deps, message.business_connection_id)
   if (!connection.allowed || !connection.isEnabled) return
   if (deps.store.wasSent(connection.ownerId, message.chat.id, message.message_id)) return

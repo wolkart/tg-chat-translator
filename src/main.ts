@@ -72,7 +72,9 @@ bot.catch((error) => {
   void alerts.general('bot', `Сбой бота: ${describeError(error.error)}`)
 })
 
-// Служебные записи (обработанные апдейты, «Кому?», эхо) чистим раз в час.
+// Служебные записи (обработанные апдейты, «Кому?», эхо) чистим раз в час, а ещё раз — при старте:
+// при частых перезапусках час не успевал бы пройти, и чистка не случалась бы никогда.
+store.cleanup(now())
 setInterval(() => store.cleanup(now()), HOUR).unref()
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

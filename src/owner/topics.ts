@@ -55,6 +55,11 @@ export function renderOwnerDirect(text: string): string[] {
   return parts
 }
 
+/** Своё вложение владельца без текста: подпись — одна пометка, чтобы оно не выглядело присланным собеседником. */
+export function renderOwnerDirectMarker(): string[] {
+  return ['<i>Вы в личке</i>']
+}
+
 /** Что ушло собеседнику: исходный текст владельца и перевод. */
 export function renderSent(original: string, translation: string): string[] {
   const head = chunks(original)

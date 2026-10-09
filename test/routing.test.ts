@@ -132,3 +132,12 @@ test('отложенное «Кому?» старше суток чиститс�
   await onChoice(deps, { id: 'CB1', data: question.opts.keyboard![0]![0]!.data }, send)
   assert.equal(sent.length, 0)
 })
+
+test('ответ на «Отправлено <имя>» (бывший «Кому?») уходит выбранному собеседнику', async () => {
+  const { deps, question, send } = await asked()
+  const annaButton = question.opts.keyboard![1]![0]!
+  await onChoice(deps, { id: 'CB1', data: annaButton.data }, send)
+  const route = routeOwnerMessage({ replyToMessageId: question.id }, deps.store, OWNER_ID, deps.now())
+  assert.equal(route.kind, 'conversation')
+  if (route.kind === 'conversation') assert.equal(route.conversation.peerName, 'Anna')
+})

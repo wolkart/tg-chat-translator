@@ -175,3 +175,10 @@ test('перевод ответа не удался дважды — две по
   const marks = sends.filter((call) => call.opts.threadId !== undefined && call.text.includes('Не отправлено:</b> перевод не удался'))
   assert.equal(marks.length, 2)
 })
+
+test('ответ на «✓ <имя>» уходит тому же собеседнику', async () => {
+  const { deps, tg, store, conversation } = prepared()
+  await sendOwnerReply(deps, conversation, reply, { outsideTopic: true })
+  const check = tg.callsOf('sendText').at(-1)!
+  assert.equal(store.conversationByBotMessage(OWNER_ID, check.id)?.id, conversation.id)
+})

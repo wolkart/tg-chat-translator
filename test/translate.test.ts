@@ -188,3 +188,14 @@ test('вызов модели: таймаут при чтении тела — �
     return true
   })
 })
+
+test('вызов модели: слэш в конце базового адреса не даёт «//chat/completions»', async () => {
+  let url = ''
+  const fetchImpl = (async (u: string | URL | Request) => {
+    url = String(u)
+    return jsonResponse({ choices: [{ message: { content: 'ok' } }] })
+  }) as typeof fetch
+  const translate = createTranslator({ ...config, baseUrl: 'http://host:1234/v1/', fetchImpl })
+  await translate({ target: ru, history: [], text: 'hi' })
+  assert.equal(url, 'http://host:1234/v1/chat/completions')
+})

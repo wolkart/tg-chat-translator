@@ -40,7 +40,7 @@ export function statusText(deps: Deps): string {
 
 /** Сообщение в чате с ботом. Обрабатываем только владельца: чужие не получают ни ответа, ни записи в базе. */
 async function onOwnerMessage(deps: Deps, message: Message): Promise<void> {
-  if (message.chat.type !== 'private' || message.from?.id !== deps.ownerId) return
+  if (message.chat.type !== 'private' || !isAllowedOwner(message.from?.id ?? 0, deps.ownerId)) return
 
   if (message.text?.startsWith('/start')) {
     await deps.api.sendText(deps.ownerId, statusText(deps))
@@ -72,7 +72,7 @@ async function onOwnerMessage(deps: Deps, message: Message): Promise<void> {
 }
 
 async function onCallback(deps: Deps, callback: CallbackQuery): Promise<void> {
-  if (callback.from.id !== deps.ownerId || !callback.data) return
+  if (!isAllowedOwner(callback.from.id, deps.ownerId) || !callback.data) return
   // Вопрос «Кому?» сам служит подтверждением, поэтому «✓ <имя>» здесь не нужно.
   await onChoice(deps, { id: callback.id, data: callback.data }, (conversation, payload) =>
     sendOwnerReply(deps, conversation, payload, { outsideTopic: false }),

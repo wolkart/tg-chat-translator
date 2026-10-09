@@ -106,6 +106,8 @@ export async function onChoice(
 
   const sent = await send(conversation, taken.payload)
   if (taken.questionMessageId !== null) {
+    // Вопрос стал подтверждением «Отправлено <имя>»: ответ на него адресован этому собеседнику.
+    if (sent) deps.store.rememberBotMessage(deps.ownerId, taken.questionMessageId, conversation.id, deps.now())
     await deps.api.editText(
       deps.ownerId,
       taken.questionMessageId,

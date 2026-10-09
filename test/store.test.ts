@@ -107,3 +107,11 @@ test('эхо одного владельца не считается эхом д
   assert.equal(store.wasSent(OWNER, 200002, 10), true)
   assert.equal(store.wasSent(OTHER_OWNER, 200002, 10), false)
 })
+
+test('ownerConnection: рабочее подключение важнее позднего апдейта выключенного', () => {
+  const store = openStore(':memory:')
+  const base = { ownerId: OWNER, userChatId: OWNER, canReply: true, allowed: true }
+  store.saveConnection({ ...base, id: 'LIVE', isEnabled: true }, T0)
+  store.saveConnection({ ...base, id: 'OLD', isEnabled: false }, T0 + 1000)
+  assert.equal(store.ownerConnection(OWNER)?.id, 'LIVE')
+})

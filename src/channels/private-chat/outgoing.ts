@@ -99,7 +99,9 @@ export async function sendOwnerReply(
   deps.store.addReplica(conversation.id, { role: 'owner', original, translation: translation || null }, now)
   await deps.topics.postText(conversation, renderSent(original, translation))
   if (opts.outsideTopic) {
-    await deps.api.sendText(deps.ownerId, `✓ ${conversation.peerName}`, { replyTo: payload.sourceMessageId })
+    const checkId = await deps.api.sendText(deps.ownerId, `✓ ${conversation.peerName}`, { replyTo: payload.sourceMessageId })
+    // «Ответить» на подтверждение — это ответ тому же собеседнику, а не повод спрашивать «Кому?».
+    deps.store.rememberBotMessage(deps.ownerId, checkId, conversation.id, deps.now())
   }
   return true
 }
