@@ -140,9 +140,10 @@ export function createTelegramApi(api: Api, token: string, fetchImpl: typeof fet
 
   return {
     async sendText(chatId, text, opts) {
-      const message = await call(() =>
-        api.sendMessage(chatId, text, { ...other(opts), link_preview_options: { is_disabled: true } }),
-      )
+      // От имени владельца сообщение должно выглядеть как написанное им самим, с превью;
+      // в чате с ботом превью засоряли бы темы.
+      const preview = opts?.businessConnectionId === undefined && { link_preview_options: { is_disabled: true } }
+      const message = await call(() => api.sendMessage(chatId, text, { ...other(opts), ...preview }))
       return message.message_id
     },
 

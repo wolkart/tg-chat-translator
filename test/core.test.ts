@@ -1,8 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { runPipeline, type Step } from '../src/pipeline.ts'
-import { TelegramError, describeError } from '../src/telegram.ts'
+import { TelegramError, createTelegramApi, describeError } from '../src/telegram.ts'
 import { fakeTelegram } from './fakes.ts'
+import type { Api } from 'grammy'
 
 type Item = { trail: string[] }
 
@@ -64,4 +65,29 @@ test('подделка API записывает вызовы и падает п�
   assert.equal(typeof id, 'number')
   assert.equal(tg.callsOf('sendText').length, 2)
   assert.equal(tg.sentAsOwner().length, 1)
+})
+
+// Настоящая обёртка с подменённым Api: сеть не нужна, смотрим только на аргументы sendMessage.
+function recordingApi() {
+  const calls: Array<Record<string, unknown>> = []
+  const api = {
+    sendMessage: async (_chat: number, _text: string, other: Record<string, unknown>) => {
+      calls.push(other)
+      return { message_id: 1 }
+    },
+  } as unknown as Api
+  return { calls, tg: createTelegramApi(api, 'TOKEN') }
+}
+
+test('sendText: в чате с ботом превью ссылок выключено', async () => {
+  const { calls, tg } = recordingApi()
+  await tg.sendText(1, 'https://example.com')
+  assert.deepEqual(calls[0]?.link_preview_options, { is_disabled: true })
+})
+
+test('sendText: от имени владельца превью не трогаем', async () => {
+  const { calls, tg } = recordingApi()
+  await tg.sendText(1, 'https://example.com', { businessConnectionId: 'BC1' })
+  assert.equal(calls[0]?.business_connection_id, 'BC1')
+  assert.equal('link_preview_options' in (calls[0] ?? {}), false)
 })

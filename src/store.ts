@@ -86,10 +86,11 @@ const SCHEMA = `
 
   -- Запасной способ узнать эхо своей отправки, если Telegram не пришлёт sender_business_bot.
   CREATE TABLE IF NOT EXISTS sent_echo (
+    owner_id     INTEGER NOT NULL,
     peer_chat_id INTEGER NOT NULL,
     message_id   INTEGER NOT NULL,
     created_at   INTEGER NOT NULL,
-    PRIMARY KEY (peer_chat_id, message_id)
+    PRIMARY KEY (owner_id, peer_chat_id, message_id)
   ) STRICT;
 `
 
@@ -188,8 +189,8 @@ export function openStore(path: string) {
     isProcessed: db.prepare('SELECT 1 FROM processed_updates WHERE update_id = ?'),
     markProcessed: db.prepare('INSERT OR IGNORE INTO processed_updates (update_id, processed_at) VALUES (?, ?)'),
 
-    rememberSent: db.prepare('INSERT OR IGNORE INTO sent_echo (peer_chat_id, message_id, created_at) VALUES (?, ?, ?)'),
-    wasSent: db.prepare('SELECT 1 FROM sent_echo WHERE peer_chat_id = ? AND message_id = ?'),
+    rememberSent: db.prepare('INSERT OR IGNORE INTO sent_echo (owner_id, peer_chat_id, message_id, created_at) VALUES (?, ?, ?, ?)'),
+    wasSent: db.prepare('SELECT 1 FROM sent_echo WHERE owner_id = ? AND peer_chat_id = ? AND message_id = ?'),
 
     cleanPending: db.prepare('DELETE FROM pending_choices WHERE created_at < ?'),
     cleanProcessed: db.prepare('DELETE FROM processed_updates WHERE processed_at < ?'),
@@ -339,12 +340,12 @@ export function openStore(path: string) {
       q.markProcessed.run(updateId, now)
     },
 
-    rememberSent(peerChatId: number, messageId: number, now: number): void {
-      q.rememberSent.run(peerChatId, messageId, now)
+    rememberSent(ownerId: number, peerChatId: number, messageId: number, now: number): void {
+      q.rememberSent.run(ownerId, peerChatId, messageId, now)
     },
 
-    wasSent(peerChatId: number, messageId: number): boolean {
-      return q.wasSent.get(peerChatId, messageId) !== undefined
+    wasSent(ownerId: number, peerChatId: number, messageId: number): boolean {
+      return q.wasSent.get(ownerId, peerChatId, messageId) !== undefined
     },
 
     /**
