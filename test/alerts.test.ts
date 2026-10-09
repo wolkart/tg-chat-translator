@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { THROTTLE_MS, createAlerts, createScrubber } from '../src/alerts.ts'
+import { THROTTLE_MS, alertModelFailure, createAlerts, createScrubber } from '../src/alerts.ts'
 import { TelegramError } from '../src/telegram.ts'
 import { fakeTelegram } from './fakes.ts'
 
@@ -116,4 +116,14 @@ test('перекрывающиеся секреты заменяются одн�
   // Убедимся, что ни AAAA ни BBBB не прошли.
   assert.ok(!result.includes('AAAA'))
   assert.ok(!result.includes('BBBB'))
+})
+
+test('сбой модели: разные причины в пределах 10 минут — одно сообщение, с первой причиной', async () => {
+  const { tg, alerts, advance } = setup()
+  await alertModelFailure(alerts, 'ошибка 503, request abc')
+  advance(60_000)
+  await alertModelFailure(alerts, 'ошибка 503, request def')
+  const sent = tg.callsOf('sendText')
+  assert.equal(sent.length, 1)
+  assert.match(sent[0]!.text, /^Модель не переводит: ошибка 503, request abc\./)
 })

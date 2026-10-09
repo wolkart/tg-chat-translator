@@ -1,4 +1,5 @@
 import type { Chat, Message } from 'grammy/types'
+import { alertModelFailure } from '../../alerts.ts'
 import type { Deps } from '../../deps.ts'
 import { detectLanguage } from '../../lang/detect.ts'
 import { extractMedia, mediaSpec, unsupportedLabel } from '../../media.ts'
@@ -101,11 +102,7 @@ export function incomingSteps(deps: Deps): Step<Replica>[] {
           replica.translationError = describeError(error)
           // Пометка в теме — у каждого сообщения, а общее сообщение говорит, что сломано и что
           // сделать; троттлинг по причине не даёт лавины, пока провайдер лежит.
-          await deps.alerts.general(
-            `model:${replica.translationError}`,
-            `Модель не переводит: ${replica.translationError}. Пока это так, входящие идут в темы без перевода, ` +
-              'а ответы собеседникам не уходят. Проверьте ключ и баланс у провайдера.',
-          )
+          await alertModelFailure(deps.alerts, replica.translationError)
         }
         return 'next'
       },
