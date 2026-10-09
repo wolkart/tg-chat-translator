@@ -60,7 +60,11 @@ export async function sendOwnerReply(
   }
 
   if (deps.dry) {
-    const shown = payload.media ? `${original}${translation ? ` ${translation}` : ''}` : translation
+    // Владелец проверяет, что уйдёт собеседнику, — оригинала подписи там быть не должно,
+    // иначе прогон выглядит как утечка русского текста.
+    const shown = payload.media
+      ? `[${mediaSpec(payload.media.kind).label}]${translation ? ` ${translation}` : ''}`
+      : translation
     await deps.topics.postText(conversation, renderDryRun(shown))
     return false
   }

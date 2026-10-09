@@ -103,7 +103,8 @@ test('холостой прогон: от имени владельца ниче
   assert.equal(tg.sentAsOwner().length, 0)
   const texts = tg.callsOf('sendText').map((call) => call.text)
   assert.ok(texts.includes('<i>Холостой прогон: ушло бы —</i> [en] Отлично, а ты?'))
-  assert.ok(texts.includes('<i>Холостой прогон: ушло бы —</i> Это тебе [en] Это тебе'))
+  assert.ok(texts.includes('<i>Холостой прогон: ушло бы —</i> [фото] [en] Это тебе'))
+  assert.ok(!texts.some((text) => text.includes('ушло бы —</i> Это тебе')))
 })
 
 test('фото владельца из темы уходит собеседнику с переведённой подписью', async () => {
