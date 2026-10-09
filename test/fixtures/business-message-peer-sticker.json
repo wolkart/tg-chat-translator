@@ -1,0 +1,34 @@
+{
+  "update_id": 1105,
+  "business_message": {
+    "business_connection_id": "BCOWNER000001",
+    "message_id": 505,
+    "from": {
+      "id": 200002,
+      "is_bot": false,
+      "first_name": "Alex",
+      "last_name": "Peer",
+      "username": "alex_peer",
+      "language_code": "en"
+    },
+    "chat": {
+      "id": 200002,
+      "first_name": "Alex",
+      "last_name": "Peer",
+      "username": "alex_peer",
+      "type": "private"
+    },
+    "date": 1760000100,
+    "sticker": {
+      "file_id": "STICKER_1",
+      "file_unique_id": "U_STICKER_1",
+      "type": "regular",
+      "width": 512,
+      "height": 512,
+      "is_animated": false,
+      "is_video": false,
+      "emoji": "👍",
+      "file_size": 20000
+    }
+  }
+}

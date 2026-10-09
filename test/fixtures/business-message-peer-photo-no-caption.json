@@ -1,0 +1,32 @@
+{
+  "update_id": 1103,
+  "business_message": {
+    "business_connection_id": "BCOWNER000001",
+    "message_id": 503,
+    "from": {
+      "id": 200002,
+      "is_bot": false,
+      "first_name": "Alex",
+      "last_name": "Peer",
+      "username": "alex_peer",
+      "language_code": "en"
+    },
+    "chat": {
+      "id": 200002,
+      "first_name": "Alex",
+      "last_name": "Peer",
+      "username": "alex_peer",
+      "type": "private"
+    },
+    "date": 1760000100,
+    "photo": [
+      {
+        "file_id": "PHOTO_BIG_2",
+        "file_unique_id": "U_PHOTO_BIG_2",
+        "file_size": 64000,
+        "width": 1280,
+        "height": 960
+      }
+    ]
+  }
+}

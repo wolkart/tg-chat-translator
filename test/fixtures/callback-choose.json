@@ -1,0 +1,35 @@
+{
+  "update_id": 1301,
+  "callback_query": {
+    "id": "CB1",
+    "from": {
+      "id": 100001,
+      "is_bot": false,
+      "first_name": "Owner",
+      "last_name": "Test",
+      "username": "owner_test",
+      "language_code": "ru",
+      "is_premium": true
+    },
+    "chat_instance": "-1",
+    "data": "to:1:1",
+    "message": {
+      "message_id": 950,
+      "from": {
+        "id": 300003,
+        "is_bot": true,
+        "first_name": "Translator",
+        "username": "translator_test_bot"
+      },
+      "chat": {
+        "id": 100001,
+        "first_name": "Owner",
+        "last_name": "Test",
+        "username": "owner_test",
+        "type": "private"
+      },
+      "date": 1760000250,
+      "text": "Кому?"
+    }
+  }
+}

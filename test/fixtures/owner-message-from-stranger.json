@@ -1,0 +1,23 @@
+{
+  "update_id": 1206,
+  "message": {
+    "message_id": 906,
+    "from": {
+      "id": 400004,
+      "is_bot": false,
+      "first_name": "Stranger",
+      "last_name": "Test",
+      "username": "stranger_test",
+      "language_code": "en"
+    },
+    "chat": {
+      "id": 400004,
+      "first_name": "Stranger",
+      "last_name": "Test",
+      "username": "stranger_test",
+      "type": "private"
+    },
+    "date": 1760000200,
+    "text": "hello"
+  }
+}

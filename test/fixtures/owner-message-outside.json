@@ -1,0 +1,24 @@
+{
+  "update_id": 1203,
+  "message": {
+    "message_id": 903,
+    "from": {
+      "id": 100001,
+      "is_bot": false,
+      "first_name": "Owner",
+      "last_name": "Test",
+      "username": "owner_test",
+      "language_code": "ru",
+      "is_premium": true
+    },
+    "chat": {
+      "id": 100001,
+      "first_name": "Owner",
+      "last_name": "Test",
+      "username": "owner_test",
+      "type": "private"
+    },
+    "date": 1760000200,
+    "text": "Привет!"
+  }
+}

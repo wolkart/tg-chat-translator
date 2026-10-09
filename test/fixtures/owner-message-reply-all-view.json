@@ -1,0 +1,46 @@
+{
+  "update_id": 1202,
+  "message": {
+    "message_id": 902,
+    "from": {
+      "id": 100001,
+      "is_bot": false,
+      "first_name": "Owner",
+      "last_name": "Test",
+      "username": "owner_test",
+      "language_code": "ru",
+      "is_premium": true
+    },
+    "chat": {
+      "id": 100001,
+      "first_name": "Owner",
+      "last_name": "Test",
+      "username": "owner_test",
+      "type": "private"
+    },
+    "date": 1760000200,
+    "message_thread_id": 77,
+    "is_topic_message": true,
+    "reply_to_message": {
+      "message_id": 600,
+      "from": {
+        "id": 300003,
+        "is_bot": true,
+        "first_name": "Translator",
+        "username": "translator_test_bot"
+      },
+      "chat": {
+        "id": 100001,
+        "first_name": "Owner",
+        "last_name": "Test",
+        "username": "owner_test",
+        "type": "private"
+      },
+      "date": 1760000150,
+      "message_thread_id": 77,
+      "is_topic_message": true,
+      "text": "Увидимся в 7?"
+    },
+    "text": "Да, до встречи"
+  }
+}

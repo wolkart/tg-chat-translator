@@ -1,0 +1,21 @@
+{
+  "update_id": 1004,
+  "business_connection": {
+    "id": "BCSTRANGER0001",
+    "user": {
+      "id": 400004,
+      "is_bot": false,
+      "first_name": "Stranger",
+      "last_name": "Test",
+      "username": "stranger_test",
+      "language_code": "en"
+    },
+    "user_chat_id": 400004,
+    "date": 1760000000,
+    "rights": {
+      "can_reply": true,
+      "can_read_messages": true
+    },
+    "is_enabled": true
+  }
+}

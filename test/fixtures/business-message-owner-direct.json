@@ -1,0 +1,25 @@
+{
+  "update_id": 1107,
+  "business_message": {
+    "business_connection_id": "BCOWNER000001",
+    "message_id": 507,
+    "from": {
+      "id": 100001,
+      "is_bot": false,
+      "first_name": "Owner",
+      "last_name": "Test",
+      "username": "owner_test",
+      "language_code": "ru",
+      "is_premium": true
+    },
+    "chat": {
+      "id": 200002,
+      "first_name": "Alex",
+      "last_name": "Peer",
+      "username": "alex_peer",
+      "type": "private"
+    },
+    "date": 1760000100,
+    "text": "ok, see you"
+  }
+}
