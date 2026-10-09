@@ -4,7 +4,7 @@ import { onBusinessMessage } from './channels/private-chat/incoming.ts'
 import { sendOwnerReply } from './channels/private-chat/outgoing.ts'
 import type { Deps } from './deps.ts'
 import { extractMedia, unsupportedLabel } from './media.ts'
-import { NO_TARGET, askWhom, onChoice, routeOwnerMessage } from './owner/routing.ts'
+import { NO_TARGET, STRAY_TOPIC, askWhom, onChoice, routeOwnerMessage } from './owner/routing.ts'
 import { TelegramError, describeError, toConnectionInfo } from './telegram.ts'
 import type { Connection } from './types.ts'
 
@@ -62,6 +62,8 @@ async function onOwnerMessage(deps: Deps, message: Message): Promise<void> {
   )
   if (route.kind === 'conversation') {
     await sendOwnerReply(deps, route.conversation, payload, { outsideTopic: !route.viaTopic })
+  } else if (route.kind === 'stray-topic') {
+    await deps.api.sendText(deps.ownerId, STRAY_TOPIC, { threadId: message.message_thread_id })
   } else if (route.kind === 'choose') {
     await askWhom(deps, payload, route.options)
   } else {
@@ -77,7 +79,16 @@ async function onCallback(deps: Deps, callback: CallbackQuery): Promise<void> {
   )
 }
 
-type Handler = { name: string; match: (update: Update) => boolean; run: (update: Update) => Promise<unknown> }
+type Handler = {
+  name: string
+  match: (update: Update) => boolean
+  run: (update: Update) => Promise<unknown>
+  /** Что сказать владельцу при поломке: что случилось и что сделать — у каждого источника своё. */
+  failure: (reason: string) => string
+}
+
+const OWN_MESSAGE_FAILURE = (reason: string) =>
+  `Не удалось обработать ваше сообщение: ${reason}. Ответ мог не уйти — проверьте личку и отправьте снова.`
 
 export function createApp(deps: Deps): { handleUpdate(update: Update): Promise<void> } {
   // Реестр обработчиков. Режим через бота и группа встанут сюда новыми строками.
@@ -86,10 +97,27 @@ export function createApp(deps: Deps): { handleUpdate(update: Update): Promise<v
       name: 'подключение к аккаунту',
       match: (u) => u.business_connection !== undefined,
       run: (u) => onBusinessConnection(deps, toConnectionInfo(u.business_connection!)),
+      failure: (reason) => `Не удалось обработать изменение подключения: ${reason}. Отправьте /start, чтобы проверить статус.`,
     },
-    { name: 'личка', match: (u) => u.business_message !== undefined, run: (u) => onBusinessMessage(deps, u.business_message!) },
-    { name: 'чат с ботом', match: (u) => u.message !== undefined, run: (u) => onOwnerMessage(deps, u.message!) },
-    { name: 'кнопка', match: (u) => u.callback_query !== undefined, run: (u) => onCallback(deps, u.callback_query!) },
+    {
+      name: 'личка',
+      match: (u) => u.business_message !== undefined,
+      run: (u) => onBusinessMessage(deps, u.business_message!),
+      failure: (reason) =>
+        `Не удалось обработать сообщение из лички: ${reason}. Оно могло не попасть в тему — посмотрите его в личке. Следующие сообщения обрабатываются как обычно.`,
+    },
+    {
+      name: 'чат с ботом',
+      match: (u) => u.message !== undefined,
+      run: (u) => onOwnerMessage(deps, u.message!),
+      failure: OWN_MESSAGE_FAILURE,
+    },
+    {
+      name: 'кнопка',
+      match: (u) => u.callback_query !== undefined,
+      run: (u) => onCallback(deps, u.callback_query!),
+      failure: OWN_MESSAGE_FAILURE,
+    },
   ]
 
   return {
@@ -107,7 +135,7 @@ export function createApp(deps: Deps): { handleUpdate(update: Update): Promise<v
         const kind = error instanceof TelegramError ? `telegram ${error.code}` : error instanceof Error ? error.name : 'unknown'
         await deps.alerts.general(
           `update:${handler?.name ?? 'неизвестно'}:${kind}`,
-          `Не удалось обработать сообщение (${handler?.name ?? 'неизвестный апдейт'}): ${describeError(error)}`,
+          handler ? handler.failure(describeError(error)) : `Не удалось обработать апдейт: ${describeError(error)}.`,
         )
       } finally {
         deps.store.markProcessed(update.update_id, deps.now())

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import type { Update } from 'grammy/types'
 import { CANT_FORWARD, createApp, statusText } from '../src/app.ts'
 import { CONNECTED } from '../src/channels/private-chat/connection.ts'
-import { NO_TARGET } from '../src/owner/routing.ts'
+import { NO_TARGET, STRAY_TOPIC } from '../src/owner/routing.ts'
 import { CONNECTION_ID, OWNER_ID, PEER_ID, fixture } from './helpers.ts'
 import { TelegramError } from '../src/telegram.ts'
 import { setupDeps } from './setup.ts'
@@ -213,3 +213,37 @@ test('разные поломки в одном обработчике — дв�
   assert.equal(alerts().length, 2)
 })
 
+
+test('сообщение в незнакомой теме — никому, подсказка в эту тему', async () => {
+  const { app, tg, translator, connectOwner } = started()
+  connectOwner()
+  await app.handleUpdate(fixture('business-message-peer-text'))
+  const translated = translator.calls.length
+  const reply = fixture('owner-message-in-topic')
+  reply.message!.message_thread_id = 999
+  await app.handleUpdate(reply)
+  assert.equal(tg.sentAsOwner().length, 0)
+  assert.equal(translator.calls.length, translated)
+  assert.ok(tg.callsOf('sendText').some((call) => call.text === STRAY_TOPIC && call.opts.threadId === 999))
+})
+
+test('поломка в чате с ботом — сказано, что ответ мог не уйти', async () => {
+  const { app, tg, store, connectOwner } = started()
+  connectOwner()
+  store.findConversationByTopic = () => {
+    throw new Error('база недоступна')
+  }
+  const reply = fixture('owner-message-in-topic')
+  reply.message!.message_thread_id = 70
+  await app.handleUpdate(reply)
+  assert.ok(tg.callsOf('sendText').some((call) => call.text.includes('Ответ мог не уйти')))
+})
+
+test('поломка при подключении — сказано отправить /start', async () => {
+  const { app, tg, store } = started()
+  store.getConnection = () => {
+    throw new Error('база недоступна')
+  }
+  await app.handleUpdate(fixture('business-connection-owner'))
+  assert.ok(tg.callsOf('sendText').some((call) => call.text.includes('/start')))
+})

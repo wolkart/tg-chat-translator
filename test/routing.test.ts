@@ -49,13 +49,11 @@ test('активных нет — некому', () => {
   assert.deepEqual(routeOwnerMessage({}, store, OWNER_ID, T0), { kind: 'none' })
 })
 
-test('неизвестная тема не мешает остальной цепочке', () => {
-  const { store } = withConversations({ id: 1, name: 'Timon', lastPeerAt: T0 })
-  const route = routeOwnerMessage({ threadId: 999 }, store, OWNER_ID, T0)
-  assert.equal(route.kind, 'conversation')
-  assert.ok(route.kind === 'conversation')
-  assert.equal(route.viaTopic, false)
-  assert.equal(route.conversation.peerName, 'Timon')
+test('незнакомая тема — никому, даже при одном активном разговоре', () => {
+  const { store, conversations } = withConversations({ id: 1, name: 'Timon', lastPeerAt: T0 })
+  assert.equal(routeOwnerMessage({ threadId: 999 }, store, OWNER_ID, T0).kind, 'stray-topic')
+  store.rememberBotMessage(OWNER_ID, 5000, conversations[0]!.id, T0)
+  assert.equal(routeOwnerMessage({ threadId: 999, replyToMessageId: 5000 }, store, OWNER_ID, T0).kind, 'stray-topic')
 })
 
 test('кнопки «Кому?»: имена, «Отмена», данные влезают в 64 байта', () => {

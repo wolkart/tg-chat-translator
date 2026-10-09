@@ -8,11 +8,15 @@ export type Route =
   | { kind: 'conversation'; conversation: Conversation; viaTopic: boolean }
   | { kind: 'choose'; options: Conversation[] }
   | { kind: 'none' }
+  /** Тема, которой нет в базе: осталась с прошлой установки. */
+  | { kind: 'stray-topic' }
 
 /**
  * Кому адресовано сообщение владельца в чате с ботом. Цепочка до первого совпадения:
  * тема → ответ на сообщение бота → единственный активный разговор → «Кому?».
  * Нужна потому, что в ленте «Все» Telegram отправляет сообщение вне темы.
+ * Исключение: сообщение в теме, которой база не знает, дальше по цепочке не идёт —
+ * иначе после удаления базы текст из старой темы ушёл бы не тому человеку.
  */
 export function routeOwnerMessage(
   input: { threadId?: number; replyToMessageId?: number },
@@ -23,6 +27,7 @@ export function routeOwnerMessage(
   if (input.threadId !== undefined) {
     const conversation = store.findConversationByTopic(ownerId, input.threadId)
     if (conversation) return { kind: 'conversation', conversation, viaTopic: true }
+    return { kind: 'stray-topic' }
   }
   if (input.replyToMessageId !== undefined) {
     const conversation = store.conversationByBotMessage(ownerId, input.replyToMessageId)
@@ -35,6 +40,9 @@ export function routeOwnerMessage(
 }
 
 export const NO_TARGET = 'Не понял, кому отправить — ответьте в теме собеседника.'
+export const STRAY_TOPIC =
+  'Эту тему бот не узнаёт — похоже, она осталась с прошлой установки. Сообщение никуда не ушло. ' +
+  'Напишите в теме собеседника; если её ещё нет, она появится, когда он напишет снова. Эту тему можно удалить.'
 export const ALREADY_HANDLED = 'Уже обработано'
 
 /** callback_data ограничена 64 байтами: «to:<pending>:<conv>» влезает с запасом. */
