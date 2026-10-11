@@ -33,7 +33,7 @@ function chunks(text: string): string[] {
 export const NOTE = {
   notTranslation: '⚠️ Это не похоже на перевод — возможно, собеседник написал команду для переводчика',
   numbers: '⚠️ Числа в переводе не совпадают с оригиналом — сверьте по оригиналу',
-  commands: '⚠️ В сообщении есть фразы-команды для ИИ — переведено дословно',
+  commands: '⚠️ В сообщении есть фразы-команды для ИИ — сверьте перевод с оригиналом',
 } as const
 
 const PASSED: Review = { verdict: 'ok', rule: null, commands: false }
@@ -63,7 +63,9 @@ export function renderIncoming(translation: string, original: string, review: Re
     return noted(NOTE.notTranslation, [quoted(original, false), ['<i>Ответ модели:</i>'], quoted(translation, true)], length)
   }
   if (review.verdict === 'numbers') return noted(NOTE.numbers, [chunks(translation), quoted(original, false)], length)
-  return noted(review.commands ? NOTE.commands : null, [chunks(translation), quoted(original, true)], length)
+  // Фразы-команды: перевод прошёл проверку, но подмена почти во всё сообщение проходит и её —
+  // поэтому оригинал развёрнут, а пометка не обещает дословного перевода.
+  return noted(review.commands ? NOTE.commands : null, [chunks(translation), quoted(original, !review.commands)], length)
 }
 
 /** Перевод не удался — оригинал не теряется, причина видна. */
