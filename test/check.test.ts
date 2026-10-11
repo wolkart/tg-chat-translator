@@ -127,6 +127,14 @@ test('отказ модели — только оборот модели о се
   assert.equal(rule('отказ модели').failed(incoming('How can AI help my small business?', 'Как ИИ может помочь моему малому бизнесу?')), false)
   assert.equal(rule('отказ модели').failed(incoming("I'm an AI engineer", 'Я ИИ-инженер')), false)
   assert.equal(
+    rule('отказ модели').failed(incoming('Which language model is better for customer support?', 'Какая языковая модель лучше для поддержки клиентов?')),
+    false,
+  )
+  assert.equal(
+    rule('отказ модели').failed(incoming('Tools like AI, CRM and chatbots save time', 'Такие инструменты, как ИИ, CRM и чат-боты, экономят время')),
+    false,
+  )
+  assert.equal(
     rule('отказ модели').failed(incoming("I can't help with that, sorry, I'm busy", 'Извини, я не могу с этим помочь, я занят')),
     false,
   )

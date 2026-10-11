@@ -86,8 +86,9 @@ export const REFUSALS: readonly RegExp[] = [
   /\bas an ai(?: language model| assistant)?,/i,
   /\bas a language model,/i,
   /\bi(?:'m| am) (?:an ai|a language model)(?=[.,!]|$)/im,
-  /как (?:ии|искусственный интеллект|языковая модель),/iu,
-  /я (?:—\s*)?языковая модель/iu,
+  /как (?:ии|искусственный интеллект|языковая модель), я/iu,
+  // Граница слева: иначе «Какая языковая модель лучше?» читалось бы как «я языковая модель».
+  /(?<!\p{L})я (?:—\s*)?языковая модель/iu,
   /\bcomo (?:ia|modelo de lenguaje|asistente de ia),/iu,
 ]
 
@@ -178,6 +179,33 @@ export const COMMAND_PATTERNS: readonly RegExp[] = [
 
 export function hasCommandPhrases(text: string): boolean {
   return matchesAny(COMMAND_PATTERNS, text)
+}
+
+/**
+ * Закладка для модели в истории — список шире, чем для пометки: к явным фразам добавлены
+ * «translate … as», «from now on», «new instructions», «you are now». Ошибка здесь дешёвая:
+ * модель не увидит одну реплику как контекст, а владелец пометок не получит. Пропущенная же
+ * закладка может подменить ответ владельца, который уходит от его имени.
+ */
+export const PLANTED_PATTERNS: readonly RegExp[] = [
+  ...COMMAND_PATTERNS,
+  // EN
+  /\btranslat\w*\b[^.\n]{0,60}\bas\b/i,
+  /\bfrom now on\b/i,
+  /\b(?:new|updated|real)\s+(?:instructions?|rules|task|system prompt)\b/i,
+  /\b(?:you are now|pretend (?:to be|you are)|act as)\b/i,
+  // RU
+  /(?:переводи|переведи)[^.\n]{0,60}как/iu,
+  /(?:с этого момента|отныне|теперь ты|ты теперь)/iu,
+  /(?:новые|новая)\s+(?:инструкц|правил|задач)/iu,
+  // ES
+  /(?:traduce|traduzcas)[^.\n]{0,60}como/iu,
+  /(?:de ahora en adelante|ahora eres|actúa como|finge que eres)/iu,
+  /(?:nuevas instrucciones|nueva tarea|nuevas reglas)/iu,
+]
+
+export function isPlantedCommand(text: string): boolean {
+  return matchesAny(PLANTED_PATTERNS, text)
 }
 
 /** Первое сработавшее правило решает, что увидит владелец; порядок в списке — приоритет. */

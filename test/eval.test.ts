@@ -13,7 +13,7 @@ test('набор: 19 атак на входящее, контроль, атак�
   assert.equal(new Set(CASES.map((c) => c.id)).size, CASES.length)
   assert.equal(CASES.filter((c) => c.kind === 'attack' && c.direction === 'incoming').length, 19)
   assert.equal(CASES.filter((c) => c.kind === 'control').length, 1)
-  assert.equal(CASES.filter((c) => c.kind === 'attack' && c.direction === 'outgoing').length, 1)
+  assert.equal(CASES.filter((c) => c.kind === 'attack' && c.direction === 'outgoing').length, 2)
   assert.ok(CASES.filter((c) => c.kind === 'normal').length >= 10)
   for (const c of CASES) assert.ok(getProfile(c.target), `нет профиля ${c.target} у случая ${c.id}`)
 })
