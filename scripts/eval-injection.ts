@@ -56,7 +56,6 @@ async function runOnce(evalCase: EvalCase): Promise<Run> {
       translation,
       owner,
       target,
-      history: evalCase.history,
     })
     return { translation, review, outcome: scoreRun(evalCase, translation, review) }
   } catch (error) {

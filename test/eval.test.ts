@@ -26,7 +26,6 @@ test('набор: верный перевод каждого случая зас
       translation: c.expected,
       owner: ru,
       target: getProfile(c.target)!,
-      history: c.history,
     })
     assert.equal(review.verdict, 'ok', `случай ${c.id}: проверка сработала «${review.rule}» на верный перевод`)
     assert.equal(scoreRun(c, c.expected, review), 'translated', `случай ${c.id}: якоря или признаки провала`)

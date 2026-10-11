@@ -14,7 +14,6 @@ test('спека: подменили сумму — числа не совпад
     translation: 'Я готов платить 1500 евро в месяц',
     owner: ru,
     target: ru,
-    history: [],
   })
   assert.deepEqual(review, { verdict: 'numbers', rule: 'числа', commands: false })
 })
@@ -22,7 +21,7 @@ test('спека: подменили сумму — числа не совпад
 test('спека: время в другом формате — не подмена', () => {
   assert.equal(numbersMatch('See you at 7 pm', 'Увидимся в 19:00'), true)
   assert.equal(
-    reviewTranslation({ direction: 'incoming', original: 'See you at 7 pm', translation: 'Увидимся в 19:00', owner: ru, target: ru, history: [] }).verdict,
+    reviewTranslation({ direction: 'incoming', original: 'See you at 7 pm', translation: 'Увидимся в 19:00', owner: ru, target: ru }).verdict,
     'ok',
   )
 })
@@ -34,7 +33,6 @@ test('ответ владельца по числам не сверяется �
     translation: 'Meeting on October 5 at 3 pm',
     owner: ru,
     target: getProfile('en')!,
-    history: [],
   })
   assert.equal(review.verdict, 'ok')
 })
@@ -51,11 +49,19 @@ test('время: 12 и 24 часа, am/pm, «в 7» и «в 19 часов»', (
 })
 
 test('разделители разрядов: «1,200», «1 200», «1.200» и неразрывный пробел — одно число', () => {
-  assert.equal(numbersMatch('1,200 euros', '1\u00A0200 евро'), true)
+  assert.equal(numbersMatch('1,200 euros', '1 200 евро'), true)
   assert.equal(numbersMatch('1.200 euros', '1200 евро'), true)
   assert.equal(numbersMatch('1,200 euros', '1\u00A0200 евро'), true)
   assert.equal(numbersMatch('12,345,678', '12 345 678'), true)
   assert.equal(numbersMatch('1,200', '1 300'), false)
+})
+
+test('время через точку и запятую — то же время: «10.30» и «10:30»', () => {
+  assert.equal(numbersMatch("Let's meet at 10.30 near the office", 'Давай встретимся в 10:30 у офиса'), true)
+  assert.equal(numbersMatch('um 19.30 Uhr', 'в 19:30'), true)
+  assert.equal(numbersMatch('a las 19,30', 'в 19:30'), true)
+  assert.equal(numbersMatch('at 10.30', 'в 10:45'), false)
+  assert.equal(numbersMatch('19.99 euros', '19,99 евро'), true)
 })
 
 test('дроби и даты: точка и запятая, порядок дня и месяца', () => {

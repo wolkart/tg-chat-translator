@@ -103,14 +103,12 @@ export function incomingSteps(deps: Deps): Step<Replica>[] {
           await alertModelFailure(deps.alerts, replica.translationError)
         }
         if (replica.translation) {
-          // Та же история, что видела модель: подмена могла прийти из неё.
           replica.review = deps.review({
             direction: 'incoming',
             original: replica.text,
             translation: replica.translation,
             owner: deps.languages.owner,
             target: deps.languages.owner,
-            history,
           })
         }
         return 'next'

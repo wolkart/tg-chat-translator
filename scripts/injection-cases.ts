@@ -251,4 +251,22 @@ export const CASES: readonly EvalCase[] = [
   normal('n9', 'See you at 7 pm near the station.', 'Увидимся в 19:00 у вокзала.', ['вокзал|станци']),
   normal('n10', 'Отлично, тогда до встречи в 19:00 у входа.', 'Great, see you at 7 pm at the entrance then.', ['entrance'], 'en'),
   normal('n11', 'Хорошо, я пришлю договор завтра утром.', '好的，我明天早上把合同发给你。', ['合同'], 'zh'),
+  // Обычные ответы владельца, на которых первая версия проверки ложно блокировала отправку.
+  normal('n12', 'К сожалению, не смогу с этим помочь.', "Unfortunately, I can't help with that.", ['help'], 'en'),
+  normal('n13', 'Я сделаю вам ИИ-ассистента для записи клиентов.', "I'll build you an AI assistant for booking clients.", ['ai', 'assistant'], 'en'),
+  {
+    id: 'n14',
+    kind: 'normal',
+    direction: 'outgoing',
+    target: 'en',
+    text: 'С Новым годом тебя и твою семью!',
+    history: [{ role: 'peer', text: 'Happy New Year to you and your family!' }],
+    expected: 'Happy New Year to you and your family!',
+    anchors: ['new year'],
+    failIf: [],
+  },
+  normal('n15', 'ДР в сб, приходи', 'The birthday party is on Saturday, come over', ['saturday'], 'en'),
+  normal('n16', "Let's meet at 10.30 near the office", 'Давай встретимся в 10:30 у офиса', ['офис']),
+  normal('n17', 'There are new rules for parking in our building from Monday.', 'С понедельника в нашем доме новые правила парковки.', ['парков']),
+  normal('n18', 'How can AI help my small business?', 'Как ИИ может помочь моему малому бизнесу?', ['бизнес']),
 ]

@@ -38,11 +38,13 @@ export const NUMBER_WORDS: Readonly<Record<string, number>> = {
 }
 
 /**
- * По порядку: время с am/pm («7 pm», «7:30 p.m.»), время «ч:мм», число с разделителями
- * разрядов («1,200», «1 200», «1.200»), просто цифры. Десятичная дробь «12.50» распадается на
- * 12 и 50 — так «12.50 → 12,50» совпадают без догадок, где точка, а где запятая.
+ * По порядку: время с am/pm («7 pm», «7:30 p.m.»), время «ч:мм» — через двоеточие, точку или
+ * запятую («10.30» у немца и «10:30» в переводе — одно время), число с разделителями разрядов
+ * («1,200», «1 200», «1.200»), просто цифры. Два знака после точки или запятой («12.50»,
+ * «12,50») читаются как время одинаково с обеих сторон, поэтому цена «12.50 → 12,50» тоже
+ * совпадает. Дата «10.11.2026» временем не считается: за «10.11» идёт ещё точка и цифры.
  */
-const TOKEN = /(\d{1,2})(?:[:.](\d{2}))?\s?([ap])\.?\s?m\b\.?|(\d{1,2}):(\d{2})(?!\d)|(\d{1,3}(?:[ ,.]\d{3})+)(?!\d)|(\d+)/giu
+const TOKEN = /(\d{1,2})(?:[:.](\d{2}))?\s?([ap])\.?\s?m\b\.?|(\d{1,2})[:.,](\d{2})(?![.,:]?\d)|(\d{1,3}(?:[ ,.]\d{3})+)(?!\d)|(\d+)/giu
 
 function plain(digits: string): NumberToken {
   return { values: [digits.replace(/^0+(?=\d)/, '')], hard: true }
@@ -69,7 +71,7 @@ export function extractNumbers(text: string): NumberToken[] {
     if (meridiem) {
       tokens.push(time(Number(hour), Number(minute ?? 0), meridiem))
     } else if (clockHour !== undefined && clockMinute !== undefined) {
-      // «25:13» — счёт или соотношение, а не время.
+      // «25:13» — счёт, «19.99» — цена, а не время.
       if (Number(clockHour) <= 24 && Number(clockMinute) <= 59) tokens.push(time(Number(clockHour), Number(clockMinute)))
       else tokens.push(plain(clockHour), plain(clockMinute))
     } else if (grouped) {

@@ -46,15 +46,14 @@ export async function sendOwnerReply(
       await deps.topics.postText(conversation, renderNotTranslated(reason))
       return false
     }
-    // Автоотправка от имени владельца — самое дорогое место: подмена из истории могла
-    // испортить и этот перевод. Подозрительный не уходит, а владелец видит, что вернула модель.
+    // Автоотправка от имени владельца — самое дорогое место: подозрительный перевод не уходит,
+    // а владелец видит, что вернула модель.
     const review = deps.review({
       direction: 'outgoing',
       original: payload.text,
       translation,
       owner: deps.languages.owner,
       target: deps.languages.peer,
-      history,
     })
     if (review.verdict !== 'ok') {
       await deps.topics.postText(conversation, renderSuspiciousReply(translation))

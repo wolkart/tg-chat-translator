@@ -357,9 +357,9 @@ test('подпись к фото не похожа на перевод — по�
   assert.ok(String(media.opts.caption).includes(`<blockquote>${caption}</blockquote>`))
 })
 
-test('проверка получает то же, что видела модель: направление, оригинал, перевод и историю', async () => {
+test('проверка получает направление, оригинал, перевод и языки', async () => {
   const seen: ReviewInput[] = []
-  const { deps, translator, connectOwner } = setupDeps({
+  const { deps, connectOwner } = setupDeps({
     overrides: {
       review: (input) => {
         seen.push(input)
@@ -376,7 +376,6 @@ test('проверка получает то же, что видела моде�
   assert.equal(seen[1]!.translation, '[ru] Are you coming?')
   assert.equal(seen[1]!.owner.code, 'ru')
   assert.equal(seen[1]!.target.code, 'ru')
-  assert.deepEqual(seen[1]!.history, translator.calls[1]!.history)
 })
 
 test('перевод не удался — проверка не вызывается', async () => {
