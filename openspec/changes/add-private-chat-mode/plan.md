@@ -7175,7 +7175,7 @@ export type NumberToken = { values: readonly string[]; hard: boolean }
 const DIGIT_ZEROS = [0x0660, 0x06f0, 0x0966, 0x0e50, 0xff10]
 
 function asciiDigits(text: string): string {
-  return text.replace(/[٠-٩۰-۹०-९๐-๙０-９]/g, (char) => {
+  return text.replace(/[\u0660-\u0669\u06F0-\u06F9\u0966-\u096F\u0E50-\u0E59\uFF10-\uFF19]/g, (char) => {
     const code = char.charCodeAt(0)
     const zero = DIGIT_ZEROS.find((start) => code >= start && code <= start + 9)!
     return String(code - zero)
