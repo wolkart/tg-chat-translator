@@ -25,7 +25,7 @@ const SCRIPT_PATTERNS: Record<Script, RegExp> = {
 /** Меньше трёх букв — «ok», «👍», ссылка: по ним язык не определить. */
 const MIN_LETTERS = 3
 
-function lettersOf(text: string): string[] {
+export function lettersOf(text: string): string[] {
   // NFC — чтобы вьетнамское «ế», пришедшее как «e» + два значка, считалось одной буквой.
   // Ссылки и упоминания — латиница, которую человек не писал словами.
   const cleaned = text

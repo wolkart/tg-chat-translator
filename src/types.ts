@@ -78,3 +78,15 @@ export type Replica = {
   translation?: string | null
   translationError?: string
 }
+
+/**
+ * Итог проверки ответа модели. not-translation — ответ не похож на перевод (модель
+ * выполнила команду, ответила на вопрос, отказалась); numbers — числа не совпали с оригиналом.
+ */
+export type Review = {
+  verdict: 'ok' | 'not-translation' | 'numbers'
+  /** Какое правило сработало — для замера и тестов */
+  rule: string | null
+  /** Во входящем есть фразы-команды для ИИ: сигнал владельцу, а не блокировка */
+  commands: boolean
+}
