@@ -181,6 +181,28 @@ Task 11 — время последнего сообщения собеседн�
 владельца»), иначе такое эхо неотличимо от «эха нет». `capture-updates.ts` получает
 команду `/send`: бот пишет Timon от имени владельца, и сырое эхо попадает в образцы.
 
+**П12. Язык перевода в проверке; неразрывный пробел (Task 17–22; решение автора
+2026-10-11).** Ревью Task 17: правило «язык» для ответа владельца требовало, чтобы перевод
+не выглядел текстом владельца. Языки с одной письменностью (en и es, ru и uk) детектор по
+алфавиту различает только по особым буквам, и честный испанский перевод без «ñ» и «á» не
+ушёл бы собеседнику. Решение автора — судить, где различимо: `ReviewInput` получает
+`target` — язык перевода (у входящего — язык владельца, у ответа — язык собеседника);
+«непонятно» (нет букв, «OK») — провал в любой паре; «остался на языке владельца» в ответе —
+только если письменности владельца и собеседника разные. Цена: в паре с общей
+письменностью не ловится перевод, оставшийся на исходном языке; длина, эхо, отказ и числа
+работают. Код задач 17–22 ниже — уже с поправкой, тестов на один больше. Заодно Task 18:
+невидимые неразрывные пробелы в регулярке и тесте заменены на `\u00A0\u202F\u2009` — при
+переписывании их потерял исполнитель, и тест перестал что-либо проверять.
+
+**П13. Числа — только во входящем (Task 18, Task 22; решение автора 2026-10-11, спека
+translation обновлена).** Автор: атака осознанным собеседником — редкость, а защита не должна
+мешать работать. Ложная тревога по числам в ответе владельца блокировала бы отправку:
+«Встреча 05.10 в 15:00» → «Meeting on October 5 at 3 pm» не ушло бы. Правило `'числа'` в
+`OUTPUT_CHECKS` срабатывает только у входящего; ответ владельца блокируется только «не похоже
+на перевод» (язык, длина, эхо, отказ). `renderSuspiciousReply(translation)` — без хвоста про
+числа, вопрос В2 снят. Тестов на один больше (Task 18 — ответ по числам не сверяется); тест
+Task 22 «числа не совпали — не уходит» заменён на «дата сменила форму — ответ уходит».
+
 ---
 
 ## Защита от подмены перевода: задачи 17–23
@@ -200,7 +222,7 @@ Task 11 — время последнего сообщения собеседн�
 набор фраз и скрипт, который гоняет их через настоящую модель.
 
 **Код прогнан в черновике**, как и у задач 1–16: после каждой задачи проверка типов чистая,
-тесты зелёные (194 → 211 → 221 → 225 → 230 → 244). Тесты проверены на поломку: если убрать
+тесты зелёные (194 → 212 → 223 → 227 → 232 → 246, с поправками П12 и П13). Тесты проверены на поломку: если убрать
 вес иероглифов, мягкие числа словами, 12-часовую запись времени или вызов проверки в
 каналах — падают.
 
@@ -263,7 +285,8 @@ Task 11 — время последнего сообщения собеседн�
 остаётся под рукой, а подпись не даёт принять его за перевод. Вариант — только пометка и
 оригинал (убрать две строки в `renderIncoming`, Task 22).
 
-**В2. Ответ владельца не ушёл из-за чисел — называть причину?** Спека: «Не отправлено:
+**В2. Ответ владельца не ушёл из-за чисел — называть причину?** *Снято поправкой П13: ответ
+владельца по числам больше не сверяется.* Спека: «Не отправлено:
 перевод выглядит подозрительно» и перевод. *В плане:* для чисел строка длиннее — «Не
 отправлено: перевод выглядит подозрительно — числа не совпадают с вашим текстом», иначе
 владелец не поймёт, что переписать. Для остальных правил — ровно текст спеки.
@@ -305,8 +328,8 @@ Task 11 — время последнего сообщения собеседн�
 - **Ложная тревога «не похоже на перевод»** — сообщение почти целиком из латиницы (код,
   список брендов, ссылки словами).
 - **Ложная тревога по числам** — смена формы числа: «05.10» → «5 октября», «$1.5k» →
-  «1500 $», «1.5 million» → «1 500 000». Во входящем это пометка, в ответе владельца —
-  неотправка.
+  «1500 $», «1.5 million» → «1 500 000». Это только пометка во входящем: ответ владельца по
+  числам не сверяется (П13).
 
 ---
 
@@ -6536,7 +6559,7 @@ EOF
 - Produces:
   - `src/types.ts`: `type Review = { verdict: 'ok' | 'not-translation' | 'numbers'; rule: string | null; commands: boolean }`.
   - `src/lang/detect.ts`: `export function lettersOf(text: string): string[]`.
-  - `src/translate/check.ts`: `type ReviewInput = { direction: 'incoming' | 'outgoing'; original: string; translation: string; owner: LangProfile; history: readonly HistoryLine[] }`; `type Reviewer = (input: ReviewInput) => Review`; `type OutputCheck = { name: string; verdict: 'not-translation' | 'numbers'; failed: (input: ReviewInput) => boolean }`; `OUTPUT_CHECKS: readonly OutputCheck[]` (имена правил: `'язык'`, `'слишком коротко'`, `'слишком длинно'`, `'эхо'`, `'отказ модели'`); `REFUSALS`, `COMMAND_PATTERNS: readonly RegExp[]`; `textWeight(text): number`; `flatten(text): string`; `hasCommandPhrases(text): boolean`; `createReviewer(checks?): Reviewer`; `reviewTranslation: Reviewer`; константы `MIN_CHECKED_WEIGHT = 12`, `MIN_SHORTNESS_WEIGHT = 30`, `TOO_SHORT_RATIO = 0.45`, `TOO_LONG_RATIO = 2.5`.
+  - `src/translate/check.ts`: `type ReviewInput = { direction: 'incoming' | 'outgoing'; original: string; translation: string; owner: LangProfile; target: LangProfile; history: readonly HistoryLine[] }`; `type Reviewer = (input: ReviewInput) => Review`; `type OutputCheck = { name: string; verdict: 'not-translation' | 'numbers'; failed: (input: ReviewInput) => boolean }`; `OUTPUT_CHECKS: readonly OutputCheck[]` (имена правил: `'язык'`, `'слишком коротко'`, `'слишком длинно'`, `'эхо'`, `'отказ модели'`); `REFUSALS`, `COMMAND_PATTERNS: readonly RegExp[]`; `textWeight(text): number`; `flatten(text): string`; `hasCommandPhrases(text): boolean`; `createReviewer(checks?): Reviewer`; `reviewTranslation: Reviewer`; константы `MIN_CHECKED_WEIGHT = 12`, `MIN_SHORTNESS_WEIGHT = 30`, `TOO_SHORT_RATIO = 0.45`, `TOO_LONG_RATIO = 2.5`.
 
 - [ ] **Step 1: Написать тесты — они должны упасть**
 
@@ -6559,13 +6582,14 @@ import {
 import type { HistoryLine } from '../src/types.ts'
 
 const ru = getProfile('ru')!
+const en = getProfile('en')!
 
 function incoming(original: string, translation: string, history: HistoryLine[] = []): ReviewInput {
-  return { direction: 'incoming', original, translation, owner: ru, history }
+  return { direction: 'incoming', original, translation, owner: ru, target: ru, history }
 }
 
-function outgoing(original: string, translation: string, history: HistoryLine[] = []): ReviewInput {
-  return { direction: 'outgoing', original, translation, owner: ru, history }
+function outgoing(original: string, translation: string, history: HistoryLine[] = [], target = en): ReviewInput {
+  return { direction: 'outgoing', original, translation, owner: ru, target, history }
 }
 
 function rule(name: string): OutputCheck {
@@ -6608,6 +6632,20 @@ test('язык: ответ владельца вернулся по-русски
 
 test('язык: короткое сообщение не проверяется', () => {
   assert.equal(rule('язык').failed(incoming('Hi there', 'Hi there')), false)
+})
+
+test('язык: в паре с одной письменностью ответ владельца по алфавиту не судим, «OK» ловим всегда', () => {
+  const spanish: ReviewInput = {
+    direction: 'outgoing',
+    original: 'Okay, see you tonight and we will talk',
+    translation: 'Vale, nos vemos esta noche y hablamos',
+    owner: en,
+    target: getProfile('es')!,
+    history: [],
+  }
+  assert.equal(rule('язык').failed(spanish), false)
+  assert.equal(rule('язык').failed({ ...spanish, translation: 'OK' }), true)
+  assert.equal(rule('язык').failed(outgoing('Да, договорились, жду тебя', 'Так, домовились, чекаю на тебе', [], getProfile('uk')!)), false)
 })
 
 test('слишком коротко: модель выкинула командную часть', () => {
@@ -6785,6 +6823,8 @@ export type ReviewInput = {
   original: string
   translation: string
   owner: LangProfile
+  /** На какой язык переводили: у входящего — язык владельца, у ответа — язык собеседника */
+  target: LangProfile
   /** Та же история, что видела модель: подмена могла прийти из неё */
   history: readonly HistoryLine[]
 }
@@ -6832,6 +6872,11 @@ export function flatten(text: string): string {
   return text.normalize('NFC').toLowerCase().replaceAll('ё', 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
 }
 
+/** Общая письменность: детектор по алфавиту такие языки почти не различает (en и es, ru и uk). */
+function shareScript(a: LangProfile, b: LangProfile): boolean {
+  return a.scripts.some((script) => b.scripts.includes(script))
+}
+
 function matchesAny(patterns: readonly RegExp[], text: string): boolean {
   return patterns.some((pattern) => pattern.test(text))
 }
@@ -6857,13 +6902,18 @@ const ratio = (input: ReviewInput) => textWeight(input.translation) / textWeight
 export const OUTPUT_CHECKS: readonly OutputCheck[] = [
   {
     // Входящее переводится на язык владельца, ответ владельца — с него. «OK» в ответ на
-    // длинную фразу — «непонятно», и это тоже провал.
+    // длинную фразу — «непонятно», и это провал в любой паре.
     name: 'язык',
     verdict: 'not-translation',
     failed: (input) => {
       if (weightOf(input) < MIN_CHECKED_WEIGHT) return false
       const verdict = detectLanguage(input.translation, input.owner)
-      return input.direction === 'incoming' ? verdict !== 'native' : verdict !== 'foreign'
+      if (verdict === 'unknown') return true
+      if (input.direction === 'incoming') return verdict !== 'native'
+      // Честный испанский перевод без «ñ» и «á» детектор принял бы за английский владельца,
+      // и ответ не ушёл бы. Поэтому «остался на языке владельца» судим, только когда
+      // письменности разные.
+      return verdict === 'native' && !shareScript(input.owner, input.target)
     },
   },
   {
@@ -6948,10 +6998,10 @@ export const reviewTranslation: Reviewer = createReviewer()
 - [ ] **Step 5: Тесты проходят**
 
 Run: `node --test test/check.test.ts`  
-Expected: PASS, 17 тестов.
+Expected: PASS, 18 тестов.
 
 Run: `npm test && npm run typecheck`  
-Expected: 211 тестов, 0 падений; проверка типов без ошибок.
+Expected: 212 тестов, 0 падений; проверка типов без ошибок.
 
 - [ ] **Step 6: Коммит**
 
@@ -6987,7 +7037,8 @@ EOF
 - десятичная дробь распадается на части: «12.50» и «12,50» — это 12 и 50; даты «10/11/2026» и «11.10.2026» — 10, 11, 2026;
 - время даёт обе записи часа: «19:00», «7 pm», «в 7», «в 19 часов» совпадают; «25:13» — не время;
 - числа цифрами — «жёсткие», им нужна пара на другой стороне; числа словами — «мягкие»: находят пару цифрам, сами пары не требуют;
-- сверка в обе стороны: подменённое и выброшенное число — несовпадение.
+- сверка в обе стороны: подменённое и выброшенное число — несовпадение;
+- только во входящем: ответ владельца по числам не сверяется (П13).
 
 - [ ] **Step 1: Написать тесты — они должны упасть**
 
@@ -7009,6 +7060,7 @@ test('спека: подменили сумму — числа не совпад
     original: "I'm ready to pay 1200 euros per month",
     translation: 'Я готов платить 1500 евро в месяц',
     owner: ru,
+    target: ru,
     history: [],
   })
   assert.deepEqual(review, { verdict: 'numbers', rule: 'числа', commands: false })
@@ -7017,9 +7069,22 @@ test('спека: подменили сумму — числа не совпад
 test('спека: время в другом формате — не подмена', () => {
   assert.equal(numbersMatch('See you at 7 pm', 'Увидимся в 19:00'), true)
   assert.equal(
-    reviewTranslation({ direction: 'incoming', original: 'See you at 7 pm', translation: 'Увидимся в 19:00', owner: ru, history: [] }).verdict,
+    reviewTranslation({ direction: 'incoming', original: 'See you at 7 pm', translation: 'Увидимся в 19:00', owner: ru, target: ru, history: [] })
+      .verdict,
     'ok',
   )
+})
+
+test('ответ владельца по числам не сверяется — он видит перевод в теме сам', () => {
+  const review = reviewTranslation({
+    direction: 'outgoing',
+    original: 'Встреча 05.10 в 15:00',
+    translation: 'Meeting on October 5 at 3 pm',
+    owner: ru,
+    target: getProfile('en')!,
+    history: [],
+  })
+  assert.equal(review.verdict, 'ok')
 })
 
 test('время: 12 и 24 часа, am/pm, «в 7» и «в 19 часов»', () => {
@@ -7036,7 +7101,7 @@ test('время: 12 и 24 часа, am/pm, «в 7» и «в 19 часов»', (
 test('разделители разрядов: «1,200», «1 200», «1.200» и неразрывный пробел — одно число', () => {
   assert.equal(numbersMatch('1,200 euros', '1 200 евро'), true)
   assert.equal(numbersMatch('1.200 euros', '1200 евро'), true)
-  assert.equal(numbersMatch('1,200 euros', '1 200 евро'), true)
+  assert.equal(numbersMatch('1,200 euros', '1\u00A0200 евро'), true)
   assert.equal(numbersMatch('12,345,678', '12 345 678'), true)
   assert.equal(numbersMatch('1,200', '1 300'), false)
 })
@@ -7154,7 +7219,7 @@ function time(hour: number, minute: number, meridiem?: string): NumberToken {
 
 export function extractNumbers(text: string): NumberToken[] {
   const prepared = asciiDigits(text.normalize('NFC'))
-    .replace(/[   ]/g, ' ')
+    .replace(/[\u00A0\u202F\u2009]/g, ' ')
     .toLowerCase()
     .replaceAll('ё', 'е')
   const tokens: NumberToken[] = []
@@ -7208,20 +7273,22 @@ import { numbersMatch } from './numbers.ts'
 
 ```ts
   {
-    // Последним: если ответ вообще не перевод, владельцу важнее это, а не числа.
+    // Последним: если ответ вообще не перевод, владельцу важнее это, а не числа. Только во
+    // входящем: свой ответ владелец видит в теме рядом с переводом, а ложная тревога на
+    // «05.10 → October 5» не дала бы ответу уйти.
     name: 'числа',
     verdict: 'numbers',
-    failed: (input) => !numbersMatch(input.original, input.translation),
+    failed: (input) => input.direction === 'incoming' && !numbersMatch(input.original, input.translation),
   },
 ```
 
 - [ ] **Step 5: Тесты проходят**
 
 Run: `node --test test/numbers.test.ts test/check.test.ts`  
-Expected: PASS, 27 тестов.
+Expected: PASS, 29 тестов.
 
 Run: `npm test && npm run typecheck`  
-Expected: 221 тест, 0 падений; проверка типов без ошибок.
+Expected: 223 теста, 0 падений; проверка типов без ошибок.
 
 - [ ] **Step 6: Отметить в tasks.md**
 
@@ -7286,7 +7353,14 @@ test('набор: 19 атак на входящее, контроль, атак�
 
 test('набор: верный перевод каждого случая засчитывается и не поднимает тревогу у проверки', () => {
   for (const c of CASES) {
-    const review = reviewTranslation({ direction: c.direction, original: c.text, translation: c.expected, owner: ru, history: c.history })
+    const review = reviewTranslation({
+      direction: c.direction,
+      original: c.text,
+      translation: c.expected,
+      owner: ru,
+      target: getProfile(c.target)!,
+      history: c.history,
+    })
     assert.equal(review.verdict, 'ok', `случай ${c.id}: проверка сработала «${review.rule}» на верный перевод`)
     assert.equal(scoreRun(c, c.expected, review), 'translated', `случай ${c.id}: якоря или признаки провала`)
   }
@@ -7626,12 +7700,14 @@ type Run = { translation: string; review: Review; outcome: Outcome } | { error: 
 
 async function runOnce(evalCase: EvalCase): Promise<Run> {
   try {
-    const translation = await translate({ target: getProfile(evalCase.target)!, history: evalCase.history, text: evalCase.text })
+    const target = getProfile(evalCase.target)!
+    const translation = await translate({ target, history: evalCase.history, text: evalCase.text })
     const review = reviewTranslation({
       direction: evalCase.direction,
       original: evalCase.text,
       translation,
       owner,
+      target,
       history: evalCase.history,
     })
     return { translation, review, outcome: scoreRun(evalCase, translation, review) }
@@ -7686,7 +7762,7 @@ Run: `node --test test/eval.test.ts`
 Expected: PASS, 4 теста.
 
 Run: `npm test && npm run typecheck`  
-Expected: 225 тестов, 0 падений; проверка типов без ошибок (`tsconfig.json` включает `scripts/`).
+Expected: 227 тестов, 0 падений; проверка типов без ошибок (`tsconfig.json` включает `scripts/`).
 
 Если тест «верный перевод каждого случая…» падает на правиле проверки — **не менять пороги и шаблоны**: это ложная тревога проверки на обычном переводе, вопрос автору (DONE_WITH_CONCERNS с номером случая и правилом).
 
@@ -8018,7 +8094,7 @@ Run: `node --test test/translate.test.ts`
 Expected: PASS, 25 тестов.
 
 Run: `npm test && npm run typecheck`  
-Expected: 230 тестов, 0 падений; проверка типов без ошибок.
+Expected: 232 теста, 0 падений; проверка типов без ошибок.
 
 - [ ] **Step 5: Отметить в tasks.md**
 
@@ -8044,7 +8120,7 @@ EOF
 **Закрывает в tasks.md:** 12.4  
 **Исполнитель:** субагент
 
-Проверка из Task 17–18 подключается к каналам через `Deps.review`. Во входящем — пометка «⚠️» по итогу проверки; подозрительный перевод ответа владельца не уходит. Решения автора по В1 и В2 (раздел «Защита от подмены перевода») — уже в коде ниже; если автор выбрал иначе, контроллер поправит задачу до отправки субагенту.
+Проверка из Task 17–18 подключается к каналам через `Deps.review`. Во входящем — пометка «⚠️» по итогу проверки; подозрительный перевод ответа владельца не уходит. Решение автора по В1 (раздел «Защита от подмены перевода») и поправки П12, П13 — уже в коде ниже.
 
 Старые тесты не трогаем: `setupDeps` по умолчанию даёт `passReview` (всё пропускает) — подделка переводчика отвечает «[ru] текст», и настоящая проверка сочла бы это не русским. Новые тесты передают настоящую `reviewTranslation` сами. В `main.ts` — настоящая проверка; поле в `Deps` обязательное, поэтому забыть его не даст проверка типов.
 
@@ -8060,14 +8136,14 @@ EOF
 
 **Interfaces:**
 - Consumes: `Review` (Task 17), `Reviewer`, `ReviewInput`, `reviewTranslation` из `src/translate/check.ts`; `fakeTranslator`, `setupDeps` из `test/setup.ts`.
-- Produces: `Deps.review: Reviewer`; `Replica.review?: Review`; `src/owner/topics.ts`: `NOTE` (тексты трёх пометок), `renderIncoming(translation, original, review?)`, `renderSuspiciousReply(translation, review)`; `test/setup.ts`: `passReview`.
+- Produces: `Deps.review: Reviewer`; `Replica.review?: Review`; `src/owner/topics.ts`: `NOTE` (тексты трёх пометок), `renderIncoming(translation, original, review?)`, `renderSuspiciousReply(translation)`; `test/setup.ts`: `passReview`.
 
 Что видит владелец (HTML темы):
 
 | Итог проверки | Входящее | Ответ владельца |
 |---|---|---|
 | не похоже на перевод | `<i>⚠️ Это не похоже на перевод — возможно, собеседник написал команду для переводчика</i>`, оригинал `<blockquote>`, `<i>Ответ модели:</i>`, ответ `<blockquote expandable>` | не уходит; `<b>Не отправлено:</b> перевод выглядит подозрительно`, «Перевод:» и перевод |
-| числа не совпали | `<i>⚠️ Числа в переводе не совпадают с оригиналом — сверьте по оригиналу</i>`, перевод, оригинал `<blockquote>` | не уходит; то же, с хвостом « — числа не совпадают с вашим текстом» |
+| числа не совпали | `<i>⚠️ Числа в переводе не совпадают с оригиналом — сверьте по оригиналу</i>`, перевод, оригинал `<blockquote>` | не бывает: ответ по числам не сверяется (П13), уходит как обычно |
 | перевод в порядке, во входящем фразы-команды | `<i>⚠️ В сообщении есть фразы-команды для ИИ — переведено дословно</i>`, перевод, оригинал `<blockquote expandable>` | — |
 | перевод в порядке | как раньше | как раньше |
 
@@ -8165,6 +8241,7 @@ test('проверка получает то же, что видела моде�
   assert.equal(seen[1]!.original, 'Are you coming?')
   assert.equal(seen[1]!.translation, '[ru] Are you coming?')
   assert.equal(seen[1]!.owner.code, 'ru')
+  assert.equal(seen[1]!.target.code, 'ru')
   assert.deepEqual(seen[1]!.history, translator.calls[1]!.history)
 })
 
@@ -8229,14 +8306,10 @@ test('подмена из истории: перевод ответа владе
   assert.equal(tg.sentAsOwner().length, 0)
 })
 
-test('числа в переводе ответа не совпали — не уходит, причина названа', async () => {
-  const { deps, tg, conversation } = guarded({ 'Готов заплатить 1200 евро': 'Ready to pay 1500 euros' })
-  assert.equal(await sendOwnerReply(deps, conversation, ownerSays('Готов заплатить 1200 евро'), { outsideTopic: false }), false)
-  assert.equal(tg.sentAsOwner().length, 0)
-  assert.equal(
-    tg.callsOf('sendText').at(-1)!.text,
-    '<b>Не отправлено:</b> перевод выглядит подозрительно — числа не совпадают с вашим текстом\nПеревод:\nReady to pay 1500 euros',
-  )
+test('дата в ответе владельца сменила форму — ответ всё равно уходит: числа в ответе не сверяются', async () => {
+  const { deps, tg, conversation } = guarded({ 'Встреча 05.10 в 15:00': 'Meeting on October 5 at 3 pm' })
+  assert.equal(await sendOwnerReply(deps, conversation, ownerSays('Встреча 05.10 в 15:00'), { outsideTopic: false }), true)
+  assert.equal(tg.sentAsOwner().length, 1)
 })
 
 test('короткий обычный ответ проходит проверку и уходит', async () => {
@@ -8283,6 +8356,7 @@ test('проверка ответа получает направление outg
   assert.equal(seen[0]!.original, 'Отлично, а ты?')
   assert.equal(seen[0]!.translation, '[en] Отлично, а ты?')
   assert.equal(seen[0]!.owner.code, 'ru')
+  assert.equal(seen[0]!.target.code, 'en')
   assert.deepEqual(seen[0]!.history, translator.calls[0]!.history)
 })
 ```
@@ -8413,9 +8487,8 @@ export function renderNotSent(why: string, translation: string): string[] {
 }
 
 /** Перевод ответа владельца не прошёл проверку — собеседнику ничего не ушло. */
-export function renderSuspiciousReply(translation: string, review: Review): string[] {
-  const why = review.verdict === 'numbers' ? ' — числа не совпадают с вашим текстом' : ''
-  return withTranslation(`<b>Не отправлено:</b> перевод выглядит подозрительно${why}`, translation)
+export function renderSuspiciousReply(translation: string): string[] {
+  return withTranslation('<b>Не отправлено:</b> перевод выглядит подозрительно', translation)
 }
 ```
 
@@ -8460,6 +8533,7 @@ export function renderSuspiciousReply(translation: string, review: Review): stri
             original: replica.text,
             translation: replica.translation,
             owner: deps.languages.owner,
+            target: deps.languages.owner,
             history,
           })
         }
@@ -8542,9 +8616,16 @@ export function renderSuspiciousReply(translation: string, review: Review): stri
     }
     // Автоотправка от имени владельца — самое дорогое место: подмена из истории могла
     // испортить и этот перевод. Подозрительный не уходит, а владелец видит, что вернула модель.
-    const review = deps.review({ direction: 'outgoing', original: payload.text, translation, owner: deps.languages.owner, history })
+    const review = deps.review({
+      direction: 'outgoing',
+      original: payload.text,
+      translation,
+      owner: deps.languages.owner,
+      target: deps.languages.peer,
+      history,
+    })
     if (review.verdict !== 'ok') {
-      await deps.topics.postText(conversation, renderSuspiciousReply(translation, review))
+      await deps.topics.postText(conversation, renderSuspiciousReply(translation))
       return false
     }
   }
@@ -8558,7 +8639,7 @@ Run: `node --test test/incoming.test.ts test/outgoing.test.ts`
 Expected: PASS, 55 тестов (34 + 21).
 
 Run: `npm test && npm run typecheck`  
-Expected: 244 теста, 0 падений; проверка типов без ошибок.
+Expected: 246 тестов, 0 падений; проверка типов без ошибок.
 
 - [ ] **Step 8: Отметить в tasks.md**
 
