@@ -6,6 +6,7 @@ import { createTopics } from './owner/topics.ts'
 import { loadSettings, startupChecks } from './startup.ts'
 import { HOUR, LANGUAGE_DEFAULTS, openStore } from './store.ts'
 import { createTelegramApi, describeError } from './telegram.ts'
+import { reviewTranslation } from './translate/check.ts'
 import { createTranslator } from './translate/llm.ts'
 import { PROVIDER_DEFAULTS } from './translate/providers.ts'
 
@@ -63,6 +64,7 @@ const app = createApp({
     : null,
   translatorProblem: model.ok ? null : model.problem,
   translatorInfo: model.ok ? `${model.provider.label} · ${model.model}` : model.problem,
+  review: reviewTranslation,
   dry,
   now,
 })

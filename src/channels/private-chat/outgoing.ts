@@ -2,7 +2,7 @@ import { alertModelFailure } from '../../alerts.ts'
 import type { Deps } from '../../deps.ts'
 import { splitText } from '../../html.ts'
 import { mediaSpec, sendMediaLadder } from '../../media.ts'
-import { renderDryRun, renderNotSent, renderNotTranslated, renderSent } from '../../owner/topics.ts'
+import { renderDryRun, renderNotSent, renderNotTranslated, renderSent, renderSuspiciousReply } from '../../owner/topics.ts'
 import { describeError } from '../../telegram.ts'
 import type { Conversation, OwnerPayload } from '../../types.ts'
 
@@ -37,16 +37,27 @@ export async function sendOwnerReply(
       )
       return false
     }
+    const history = deps.store.recentReplicas(conversation.id)
     try {
-      translation = await deps.translator({
-        target: deps.languages.peer,
-        history: deps.store.recentReplicas(conversation.id),
-        text: payload.text,
-      })
+      translation = await deps.translator({ target: deps.languages.peer, history, text: payload.text })
     } catch (error) {
       const reason = describeError(error)
       await alertModelFailure(deps.alerts, reason)
       await deps.topics.postText(conversation, renderNotTranslated(reason))
+      return false
+    }
+    // Автоотправка от имени владельца — самое дорогое место: подмена из истории могла
+    // испортить и этот перевод. Подозрительный не уходит, а владелец видит, что вернула модель.
+    const review = deps.review({
+      direction: 'outgoing',
+      original: payload.text,
+      translation,
+      owner: deps.languages.owner,
+      target: deps.languages.peer,
+      history,
+    })
+    if (review.verdict !== 'ok') {
+      await deps.topics.postText(conversation, renderSuspiciousReply(translation))
       return false
     }
   }

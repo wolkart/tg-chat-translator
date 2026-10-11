@@ -77,6 +77,8 @@ export type Replica = {
   conversation?: Conversation
   translation?: string | null
   translationError?: string
+  /** Итог проверки перевода; нет — перевода не было */
+  review?: Review
 }
 
 /**

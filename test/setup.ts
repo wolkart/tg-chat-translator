@@ -4,6 +4,7 @@ import { resolvePair } from '../src/lang/profiles.ts'
 import { createTopics } from '../src/owner/topics.ts'
 import { openStore } from '../src/store.ts'
 import type { BusinessConnectionInfo } from '../src/telegram.ts'
+import type { Reviewer } from '../src/translate/check.ts'
 import type { TranslateRequest, Translator } from '../src/translate/llm.ts'
 import { fakeTelegram } from './fakes.ts'
 import { BOT_ID, CONNECTION_ID, OWNER_ID, T0 } from './helpers.ts'
@@ -17,6 +18,13 @@ export function fakeTranslator(impl?: (request: TranslateRequest) => string | Pr
   }
   return { translate, calls }
 }
+
+/**
+ * Проверка перевода, которая всё пропускает. Подделка переводчика отвечает «[ru] текст» —
+ * настоящая проверка сочла бы это не русским. Тесты доставки проверяют доставку, а тесты
+ * защиты передают настоящую проверку сами.
+ */
+export const passReview: Reviewer = () => ({ verdict: 'ok', rule: null, commands: false })
 
 export const OWNER_CONNECTION: BusinessConnectionInfo = {
   id: CONNECTION_ID,
@@ -52,6 +60,7 @@ export function setupDeps(options: { overrides?: Partial<Deps>; connections?: Bu
     translator: translator.translate,
     translatorProblem: null,
     translatorInfo: 'OpenRouter · openai/gpt-4.1-mini',
+    review: passReview,
     dry: false,
     now,
     ...options.overrides,

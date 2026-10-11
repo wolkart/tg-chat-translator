@@ -93,17 +93,25 @@ export function incomingSteps(deps: Deps): Step<Replica>[] {
           replica.translationError = deps.translatorProblem ?? deps.languagesProblem ?? 'переводчик не настроен'
           return 'next'
         }
+        const history = deps.store.recentReplicas(replica.conversation!.id)
         try {
-          replica.translation = await deps.translator({
-            target: deps.languages.owner,
-            history: deps.store.recentReplicas(replica.conversation!.id),
-            text: replica.text,
-          })
+          replica.translation = await deps.translator({ target: deps.languages.owner, history, text: replica.text })
         } catch (error) {
           replica.translationError = describeError(error)
           // Пометка в теме — у каждого сообщения, а общее сообщение говорит, что сломано и что
           // сделать; троттлинг по постоянному ключу не даёт лавины, пока провайдер лежит.
           await alertModelFailure(deps.alerts, replica.translationError)
+        }
+        if (replica.translation) {
+          // Та же история, что видела модель: подмена могла прийти из неё.
+          replica.review = deps.review({
+            direction: 'incoming',
+            original: replica.text,
+            translation: replica.translation,
+            owner: deps.languages.owner,
+            target: deps.languages.owner,
+            history,
+          })
         }
         return 'next'
       },
@@ -137,9 +145,11 @@ export function incomingSteps(deps: Deps): Step<Replica>[] {
           return 'stop'
         }
 
+        // То, что не похоже на перевод, переводом и не храним.
+        const translation = replica.review?.verdict === 'not-translation' ? null : (replica.translation ?? null)
         deps.store.addReplica(
           conversation.id,
-          { role: isPeer ? 'peer' : 'owner', original: historyText(replica), translation: replica.translation ?? null },
+          { role: isPeer ? 'peer' : 'owner', original: historyText(replica), translation },
           deps.now(),
         )
         if (isPeer) deps.store.touchPeer(conversation.id, deps.now())
@@ -151,7 +161,7 @@ export function incomingSteps(deps: Deps): Step<Replica>[] {
 
 function textFor(replica: Replica): string[] {
   if (replica.direction === 'owner-direct') return renderOwnerDirect(replica.text)
-  if (replica.translation) return renderIncoming(replica.translation, replica.text)
+  if (replica.translation) return renderIncoming(replica.translation, replica.text, replica.review)
   if (replica.translationError) return renderUntranslated(replica.text, replica.translationError)
   return renderAsIs(replica.text)
 }
@@ -160,7 +170,13 @@ function captionFor(replica: Replica): string {
   if (replica.direction === 'owner-direct') {
     return (replica.text ? renderOwnerDirect(replica.text) : renderOwnerDirectMarker()).join('')
   }
-  if (replica.translation) return renderCaption(replica.translation)
+  if (replica.translation) {
+    // Обычный перевод подписи — без оригинала, как раньше. С пометкой — как текст: оригинал рядом.
+    const review = replica.review
+    return review && (review.verdict !== 'ok' || review.commands)
+      ? renderIncoming(replica.translation, replica.text, review).join('\n')
+      : renderCaption(replica.translation)
+  }
   if (replica.translationError) return renderUntranslated(replica.text, replica.translationError).join('')
   return renderCaption(replica.text)
 }

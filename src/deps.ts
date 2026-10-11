@@ -3,6 +3,7 @@ import type { LanguagePair } from './lang/profiles.ts'
 import type { Topics } from './owner/topics.ts'
 import type { Store } from './store.ts'
 import type { TelegramApi } from './telegram.ts'
+import type { Reviewer } from './translate/check.ts'
 import type { Translator } from './translate/llm.ts'
 
 /**
@@ -25,6 +26,8 @@ export type Deps = {
   translatorProblem: string | null
   /** Для статуса: «OpenRouter · openai/gpt-4.1-mini» или причина, почему модели нет */
   translatorInfo: string
+  /** Проверка ответа модели до показа владельцу и до отправки собеседнику */
+  review: Reviewer
   /** Холостой прогон: собеседнику ничего не уходит */
   dry: boolean
   now: () => number
