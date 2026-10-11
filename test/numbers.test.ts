@@ -13,6 +13,7 @@ test('спека: подменили сумму — числа не совпад
     original: "I'm ready to pay 1200 euros per month",
     translation: 'Я готов платить 1500 евро в месяц',
     owner: ru,
+    target: ru,
     history: [],
   })
   assert.deepEqual(review, { verdict: 'numbers', rule: 'числа', commands: false })
@@ -21,9 +22,21 @@ test('спека: подменили сумму — числа не совпад
 test('спека: время в другом формате — не подмена', () => {
   assert.equal(numbersMatch('See you at 7 pm', 'Увидимся в 19:00'), true)
   assert.equal(
-    reviewTranslation({ direction: 'incoming', original: 'See you at 7 pm', translation: 'Увидимся в 19:00', owner: ru, history: [] }).verdict,
+    reviewTranslation({ direction: 'incoming', original: 'See you at 7 pm', translation: 'Увидимся в 19:00', owner: ru, target: ru, history: [] }).verdict,
     'ok',
   )
+})
+
+test('ответ владельца по числам не сверяется — он видит перевод в теме сам', () => {
+  const review = reviewTranslation({
+    direction: 'outgoing',
+    original: 'Встреча 05.10 в 15:00',
+    translation: 'Meeting on October 5 at 3 pm',
+    owner: ru,
+    target: getProfile('en')!,
+    history: [],
+  })
+  assert.equal(review.verdict, 'ok')
 })
 
 test('время: 12 и 24 часа, am/pm, «в 7» и «в 19 часов»', () => {
@@ -38,9 +51,9 @@ test('время: 12 и 24 часа, am/pm, «в 7» и «в 19 часов»', (
 })
 
 test('разделители разрядов: «1,200», «1 200», «1.200» и неразрывный пробел — одно число', () => {
-  assert.equal(numbersMatch('1,200 euros', '1 200 евро'), true)
+  assert.equal(numbersMatch('1,200 euros', '1\u00A0200 евро'), true)
   assert.equal(numbersMatch('1.200 euros', '1200 евро'), true)
-  assert.equal(numbersMatch('1,200 euros', '1 200 евро'), true)
+  assert.equal(numbersMatch('1,200 euros', '1\u00A0200 евро'), true)
   assert.equal(numbersMatch('12,345,678', '12 345 678'), true)
   assert.equal(numbersMatch('1,200', '1 300'), false)
 })

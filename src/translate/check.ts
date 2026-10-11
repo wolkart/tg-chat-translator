@@ -15,6 +15,8 @@ export type ReviewInput = {
   original: string
   translation: string
   owner: LangProfile
+  /** На какой язык переводили: у входящего — язык владельца, у ответа — язык собеседника */
+  target: LangProfile
   /** Та же история, что видела модель: подмена могла прийти из неё */
   history: readonly HistoryLine[]
 }
@@ -62,6 +64,11 @@ export function flatten(text: string): string {
   return text.normalize('NFC').toLowerCase().replaceAll('ё', 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
 }
 
+/** Общая письменность: детектор по алфавиту такие языки почти не различает (en и es, ru и uk). */
+function shareScript(a: LangProfile, b: LangProfile): boolean {
+  return a.scripts.some((script) => b.scripts.includes(script))
+}
+
 function matchesAny(patterns: readonly RegExp[], text: string): boolean {
   return patterns.some((pattern) => pattern.test(text))
 }
@@ -87,13 +94,18 @@ const ratio = (input: ReviewInput) => textWeight(input.translation) / textWeight
 export const OUTPUT_CHECKS: readonly OutputCheck[] = [
   {
     // Входящее переводится на язык владельца, ответ владельца — с него. «OK» в ответ на
-    // длинную фразу — «непонятно», и это тоже провал.
+    // длинную фразу — «непонятно», и это провал в любой паре.
     name: 'язык',
     verdict: 'not-translation',
     failed: (input) => {
       if (weightOf(input) < MIN_CHECKED_WEIGHT) return false
       const verdict = detectLanguage(input.translation, input.owner)
-      return input.direction === 'incoming' ? verdict !== 'native' : verdict !== 'foreign'
+      if (verdict === 'unknown') return true
+      if (input.direction === 'incoming') return verdict !== 'native'
+      // Честный испанский перевод без «ñ» и «á» детектор принял бы за английский владельца,
+      // и ответ не ушёл бы. Поэтому «остался на языке владельца» судим, только когда
+      // письменности разные.
+      return verdict === 'native' && !shareScript(input.owner, input.target)
     },
   },
   {
@@ -130,10 +142,12 @@ export const OUTPUT_CHECKS: readonly OutputCheck[] = [
     failed: (input) => matchesAny(REFUSALS, input.translation) && !matchesAny(REFUSALS, input.original),
   },
   {
-    // Последним: если ответ вообще не перевод, владельцу важнее это, а не числа.
+    // Последним: если ответ вообще не перевод, владельцу важнее это, а не числа. Только во
+    // входящем: свой ответ владелец видит в теме рядом с переводом, а ложная тревога на
+    // «05.10 → October 5» не дала бы ответу уйти.
     name: 'числа',
     verdict: 'numbers',
-    failed: (input) => !numbersMatch(input.original, input.translation),
+    failed: (input) => input.direction === 'incoming' && !numbersMatch(input.original, input.translation),
   },
 ]
 

@@ -14,13 +14,14 @@ import {
 import type { HistoryLine } from '../src/types.ts'
 
 const ru = getProfile('ru')!
+const en = getProfile('en')!
 
 function incoming(original: string, translation: string, history: HistoryLine[] = []): ReviewInput {
-  return { direction: 'incoming', original, translation, owner: ru, history }
+  return { direction: 'incoming', original, translation, owner: ru, target: ru, history }
 }
 
-function outgoing(original: string, translation: string, history: HistoryLine[] = []): ReviewInput {
-  return { direction: 'outgoing', original, translation, owner: ru, history }
+function outgoing(original: string, translation: string, history: HistoryLine[] = [], target = en): ReviewInput {
+  return { direction: 'outgoing', original, translation, owner: ru, target, history }
 }
 
 function rule(name: string): OutputCheck {
@@ -63,6 +64,20 @@ test('язык: ответ владельца вернулся по-русски
 
 test('язык: короткое сообщение не проверяется', () => {
   assert.equal(rule('язык').failed(incoming('Hi there', 'Hi there')), false)
+})
+
+test('язык: в паре с одной письменностью ответ владельца по алфавиту не судим, «OK» ловим всегда', () => {
+  const spanish: ReviewInput = {
+    direction: 'outgoing',
+    original: 'Okay, see you tonight and we will talk',
+    translation: 'Vale, nos vemos esta noche y hablamos',
+    owner: en,
+    target: getProfile('es')!,
+    history: [],
+  }
+  assert.equal(rule('язык').failed(spanish), false)
+  assert.equal(rule('язык').failed({ ...spanish, translation: 'OK' }), true)
+  assert.equal(rule('язык').failed(outgoing('Да, договорились, жду тебя', 'Так, домовились, чекаю на тебе', [], getProfile('uk')!)), false)
 })
 
 test('слишком коротко: модель выкинула командную часть', () => {
