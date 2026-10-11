@@ -1,6 +1,7 @@
 import { detectLanguage, lettersOf } from '../lang/detect.ts'
 import type { LangProfile } from '../lang/profiles.ts'
 import type { HistoryLine, Review } from '../types.ts'
+import { numbersMatch } from './numbers.ts'
 
 /**
  * Проверка ответа модели — на месте, без сети и без второго вызова модели. Промпт снижает
@@ -127,6 +128,12 @@ export const OUTPUT_CHECKS: readonly OutputCheck[] = [
     name: 'отказ модели',
     verdict: 'not-translation',
     failed: (input) => matchesAny(REFUSALS, input.translation) && !matchesAny(REFUSALS, input.original),
+  },
+  {
+    // Последним: если ответ вообще не перевод, владельцу важнее это, а не числа.
+    name: 'числа',
+    verdict: 'numbers',
+    failed: (input) => !numbersMatch(input.original, input.translation),
   },
 ]
 
