@@ -14,6 +14,7 @@ import {
 } from '../src/owner/manual-send.ts'
 import { DRAFT_TTL } from '../src/store.ts'
 import { reviewTranslation } from '../src/translate/check.ts'
+import { TelegramError } from '../src/telegram.ts'
 import { TranslationError } from '../src/translate/llm.ts'
 import type { OwnerPayload } from '../src/types.ts'
 import { OWNER_ID } from './helpers.ts'
@@ -203,11 +204,24 @@ test('спека: перевод устарел — вариантов нет, �
   ])
 })
 
-test('чужой номер, пустой и мусорный запрос — тоже без вариантов', async () => {
+test('чужой номер — без вариантов, но с кнопкой «Перевод устарел»', async () => {
   const { deps, tg, store } = setupDeps()
   const foreign = store.createDraft({ ownerId: 100002, conversationId: null, original: 'x', translation: 'secret', now: deps.now() })
-  for (const query of [String(foreign.id), '', 'hello', '1e3', '99999999999999999999']) {
-    await answerInline(deps, { id: 'Q', query })
-  }
-  assert.ok(tg.callsOf('answerInline').every((call) => call.articles.length === 0))
+  await answerInline(deps, { id: 'Q', query: String(foreign.id) })
+  assert.deepEqual(tg.callsOf('answerInline'), [
+    { method: 'answerInline', queryId: 'Q', articles: [], button: { text: DRAFT_EXPIRED, startParameter: 'draft' } },
+  ])
+})
+
+test('устаревший inline-запрос (бот лежал) — тихо, без сообщения владельцу', async () => {
+  const { deps, tg } = setupDeps()
+  tg.failNext('answerInline', new TelegramError(400, 'Bad Request: query is too old and response timeout expired or query ID is invalid'))
+  await answerInline(deps, { id: 'Q', query: '5' })
+  assert.equal(tg.callsOf('sendText').length, 0)
+})
+
+test('другая ошибка ответа на inline-запрос пробрасывается — владелец узнает', async () => {
+  const { deps, tg } = setupDeps()
+  tg.failNext('answerInline', new TelegramError(500, 'Internal Server Error'))
+  await assert.rejects(answerInline(deps, { id: 'Q', query: '5' }), /Internal Server Error/)
 })

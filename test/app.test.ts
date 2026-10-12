@@ -300,11 +300,11 @@ test('inline-запрос владельца — ответ с его перев
 
 test('inline-ответ не ушёл — владелец знает, что нажать', async () => {
   const { app, tg } = started()
-  tg.failNext('answerInline', new TelegramError(400, 'Bad Request: query is too old'))
+  tg.failNext('answerInline', new TelegramError(500, 'Internal Server Error'))
   await app.handleUpdate(fixture('inline-query-owner'))
   assert.ok(
     tg.callsOf('sendText').some((call) =>
-      call.text.startsWith('Не удалось ответить на кнопку «Отправить через бота»: Bad Request: query is too old. Попробуйте ещё раз или нажмите «Скопировать».'),
+      call.text.startsWith('Не удалось ответить на кнопку «Отправить через бота»: Internal Server Error. Попробуйте ещё раз или нажмите «Скопировать».'),
     ),
   )
 })

@@ -1,7 +1,7 @@
 import { alertModelFailure } from '../alerts.ts'
 import type { Deps } from '../deps.ts'
 import { MESSAGE_LIMIT, escapeHtml, splitText } from '../html.ts'
-import { describeError, type InlineButton } from '../telegram.ts'
+import { TelegramError, describeError, type InlineButton } from '../telegram.ts'
 import type { Draft, OwnerPayload } from '../types.ts'
 
 /**
@@ -137,6 +137,9 @@ export async function newPeerDraft(deps: Deps, payload: OwnerPayload): Promise<v
   )
 }
 
+/** Ответ Telegram на inline-запрос, на который отвечать уже поздно. */
+const STALE_QUERY = /query is too old|query id is invalid/i
+
 function titleOf(translation: string): string {
   const firstLine = translation.split('\n')[0]!
   return firstLine.length > TITLE_LIMIT ? `${firstLine.slice(0, TITLE_LIMIT - 1)}…` : firstLine
@@ -151,11 +154,22 @@ export async function answerInline(deps: Deps, query: { id: string; query: strin
   const text = query.query.trim()
   const id = /^\d{1,15}$/.test(text) ? Number(text) : undefined
   const draft = id === undefined ? undefined : deps.store.getDraft(deps.ownerId, id, deps.now())
-  if (!draft) {
-    await deps.api.answerInline(query.id, [], { button: { text: DRAFT_EXPIRED, startParameter: 'draft' } })
-    return
+  try {
+    if (!draft) {
+      await deps.api.answerInline(query.id, [], { button: { text: DRAFT_EXPIRED, startParameter: 'draft' } })
+      return
+    }
+    await deps.api.answerInline(query.id, [
+      { id: String(draft.id), title: titleOf(draft.translation), description: INLINE_HINT, text: draft.translation },
+    ])
+  } catch (error) {
+    // После простоя Telegram может доставить старые inline-запросы: отвечать на них поздно,
+    // а сообщение владельцу «не удалось ответить» про кнопку, которую он давно нажал, —
+    // лишний шум. Любая другая ошибка пробрасывается: владелец должен о ней узнать.
+    if (error instanceof TelegramError && STALE_QUERY.test(error.description)) {
+      deps.alerts.log('inline-запрос устарел — ответ не нужен')
+      return
+    }
+    throw error
   }
-  await deps.api.answerInline(query.id, [
-    { id: String(draft.id), title: titleOf(draft.translation), description: INLINE_HINT, text: draft.translation },
-  ])
 }
