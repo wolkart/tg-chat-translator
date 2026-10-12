@@ -6579,7 +6579,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 EOF
 ```
 
-- [ ] **Step 6: Финальное ревью и решение автора**
+- [x] **Step 6: Финальное ревью и решение автора**
 
 Финальное ревью всей ветки по subagent-driven-development (самая сильная модель). После него автор решает, сливать ли `feat/private-chat-mode` в `main` и пушить. Архивация изменения — `/opsx:archive` после ревью автора.
 
