@@ -1,7 +1,15 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createAlerts } from '../src/alerts.ts'
-import { BUSINESS_MODE_OFF, TOPICS_OFF, loadSettings, startupChecks } from '../src/startup.ts'
+import {
+  BUSINESS_MODE_OFF,
+  INLINE_OFF,
+  INLINE_RECHECK_MS,
+  TOPICS_OFF,
+  createInlineCheck,
+  loadSettings,
+  startupChecks,
+} from '../src/startup.ts'
 import { LANGUAGE_DEFAULTS, SETTING, openStore } from '../src/store.ts'
 import type { BotInfo } from '../src/telegram.ts'
 import { PROVIDER_DEFAULTS } from '../src/translate/providers.ts'
@@ -55,4 +63,51 @@ test('пустая база после ensureDefaults — пара русски�
   assert.equal(pair.ok, true)
   if (pair.ok) assert.deepEqual([pair.pair.owner.code, pair.pair.peer.code].sort(), ['en', 'ru'])
   store.close()
+})
+
+test('спека: Inline Mode выключен — что включить в BotFather', async () => {
+  const { tg, alerts } = setup()
+  await startupChecks({ me: { ...healthy, supportsInlineQueries: false }, alerts, languagesProblem: null, modelProblem: null })
+  assert.deepEqual(tg.callsOf('sendText').map((call) => call.text), [INLINE_OFF])
+  assert.equal(
+    INLINE_OFF,
+    'В BotFather выключен Inline Mode — без него не работает кнопка «Отправить через бота». ' +
+      'Откройте @BotFather → /mybots → этот бот → Bot Settings → Inline Mode → Turn on.',
+  )
+})
+
+test('Inline Mode включили без перезапуска — бот замечает, но спрашивает Telegram не чаще раза в минуту', async () => {
+  let clock = 0
+  const tg = fakeTelegram({ me: { supportsInlineQueries: true } })
+  const enabled = createInlineCheck({ api: tg.api, initial: false, now: () => clock })
+  assert.equal(await enabled(), false)
+  assert.equal(tg.callsOf('getMe').length, 0)
+  clock += INLINE_RECHECK_MS
+  assert.equal(await enabled(), true)
+  assert.equal(tg.callsOf('getMe').length, 1)
+  clock += INLINE_RECHECK_MS
+  assert.equal(await enabled(), true)
+  assert.equal(tg.callsOf('getMe').length, 1)
+})
+
+test('Inline Mode всё ещё выключен — повторный вопрос только через минуту', async () => {
+  let clock = 0
+  const tg = fakeTelegram({ me: { supportsInlineQueries: false } })
+  const enabled = createInlineCheck({ api: tg.api, initial: false, now: () => clock })
+  clock += INLINE_RECHECK_MS
+  assert.equal(await enabled(), false)
+  clock += INLINE_RECHECK_MS - 1
+  assert.equal(await enabled(), false)
+  assert.equal(tg.callsOf('getMe').length, 1)
+})
+
+test('проверка Inline Mode: сбой getMe — по-прежнему выключено, бот не падает', async () => {
+  let clock = 0
+  const tg = fakeTelegram({ me: { supportsInlineQueries: true } })
+  tg.failNext('getMe', new Error('сеть моргнула'))
+  const enabled = createInlineCheck({ api: tg.api, initial: false, now: () => clock })
+  clock += INLINE_RECHECK_MS
+  assert.equal(await enabled(), false)
+  clock += INLINE_RECHECK_MS
+  assert.equal(await enabled(), true)
 })

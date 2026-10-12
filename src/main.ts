@@ -3,7 +3,7 @@ import { createAlerts, createScrubber } from './alerts.ts'
 import { createApp } from './app.ts'
 import { loadEnv } from './env.ts'
 import { createTopics } from './owner/topics.ts'
-import { loadSettings, startupChecks } from './startup.ts'
+import { createInlineCheck, loadSettings, startupChecks } from './startup.ts'
 import { HOUR, LANGUAGE_DEFAULTS, openStore } from './store.ts'
 import { createTelegramApi, describeError } from './telegram.ts'
 import { reviewTranslation } from './translate/check.ts'
@@ -65,6 +65,7 @@ const app = createApp({
   translatorProblem: model.ok ? null : model.problem,
   translatorInfo: model.ok ? `${model.provider.label} · ${model.model}` : model.problem,
   review: reviewTranslation,
+  inlineEnabled: createInlineCheck({ api, initial: me.supportsInlineQueries, now }),
   dry,
   now,
 })

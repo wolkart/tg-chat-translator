@@ -28,6 +28,8 @@ export type Deps = {
   translatorInfo: string
   /** Проверка ответа модели до показа владельцу и до отправки собеседнику */
   review: Reviewer
+  /** Включён ли Inline Mode в BotFather: без него у перевода нет кнопки «Отправить через бота» */
+  inlineEnabled: () => Promise<boolean>
   /** Холостой прогон: собеседнику ничего не уходит */
   dry: boolean
   now: () => number

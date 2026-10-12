@@ -61,6 +61,7 @@ export function setupDeps(options: { overrides?: Partial<Deps>; connections?: Bu
     translatorProblem: null,
     translatorInfo: 'OpenRouter · openai/gpt-4.1-mini',
     review: passReview,
+    inlineEnabled: async () => true,
     dry: false,
     now,
     ...options.overrides,
