@@ -1,8 +1,9 @@
 import { alertModelFailure } from '../alerts.ts'
-import type { Deps } from '../deps.ts'
-import { MESSAGE_LIMIT, escapeHtml, splitText } from '../html.ts'
-import { TelegramError, describeError, type InlineButton } from '../telegram.ts'
+import { translatorUnavailable, type Deps } from '../deps.ts'
+import { MESSAGE_LIMIT, escapeHtml } from '../html.ts'
+import { describeError, isTelegramError, type InlineAnswerButton, type InlineArticle, type InlineButton } from '../telegram.ts'
 import type { Draft, OwnerPayload } from '../types.ts'
+import { chunks, sendHtmlParts } from './topics.ts'
 
 /**
  * Ручная отправка: когда бот не может или не должен писать от имени владельца сам —
@@ -12,9 +13,6 @@ import type { Draft, OwnerPayload } from '../types.ts'
 
 /** Telegram принимает в кнопке «Скопировать» не больше 256 символов. */
 export const COPY_LIMIT = 256
-
-/** Длина куска перевода в одном сообщении. Запас до 4096 — на заголовок и экранирование. */
-const CHUNK = MESSAGE_LIMIT - 512
 
 export const SEND_VIA_BOT = 'Отправить через бота'
 export const COPY = 'Скопировать'
@@ -51,7 +49,7 @@ export function manualKeyboard(draft: Pick<Draft, 'id' | 'translation'>, opts: {
  */
 export function renderDraft(head: string, translation: string): string[] {
   if (translation.length <= COPY_LIMIT) return [`${head}\n${escapeHtml(translation)}`]
-  const parts = splitText(translation, CHUNK).map((part) => `<pre>${escapeHtml(part)}</pre>`)
+  const parts = chunks(translation).map((part) => `<pre>${part}</pre>`)
   parts[0] = `${head}\n<i>${TAP_TO_COPY}:</i>\n${parts[0]}`
   return parts
 }
@@ -63,7 +61,7 @@ export function newPeerHead(languageName: string): string {
 
 /** Перевод не прошёл проверку: показываем, но отправлять не предлагаем. */
 export function renderSuspiciousDraft(translation: string): string[] {
-  const parts = splitText(translation, CHUNK).map(escapeHtml)
+  const parts = chunks(translation)
   parts[0] = `<i>${SUSPICIOUS_DRAFT}</i>\n${parts[0]}`
   return parts
 }
@@ -72,16 +70,33 @@ export function renderDraftFailed(reason: string): string[] {
   return [`<i>Перевод не удался: ${escapeHtml(reason)}</i>`]
 }
 
-/** Части HTML в чат владельца вне тем: ответом на его сообщение, кнопки — под последней. */
-async function replyToOwner(deps: Deps, replyTo: number, html: readonly string[], keyboard?: InlineButton[][]): Promise<void> {
-  for (const [index, part] of html.entries()) {
-    const last = index === html.length - 1
-    await deps.api.sendText(deps.ownerId, part, {
-      html: true,
-      ...(index === 0 && { replyTo }),
-      ...(last && keyboard && keyboard.length > 0 && { keyboard }),
-    })
+/**
+ * Перевод → сохранённый черновик, готовый HTML и кнопки ручной отправки. Общий путь для
+ * «написать первым» и для перевода, который бот не смог отправить сам. Inline Mode
+ * проверяем, только когда кнопка «Отправить через бота» вообще возможна: с вложением её
+ * не бывает, и запрос getMe был бы лишним.
+ */
+export async function prepareDraft(
+  deps: Deps,
+  input: { ownerId: number; conversationId: number | null; original: string; translation: string; head: string; media: boolean },
+): Promise<{ html: string[]; keyboard: InlineButton[][] }> {
+  const draft = deps.store.createDraft({
+    ownerId: input.ownerId,
+    conversationId: input.conversationId,
+    original: input.original,
+    translation: input.translation,
+    now: deps.now(),
+  })
+  const inline = input.media ? false : await deps.inlineEnabled()
+  return {
+    html: renderDraft(input.head, draft.translation),
+    keyboard: manualKeyboard(draft, { inline, media: input.media }),
   }
+}
+
+/** Части в чат владельца вне тем: ответом на его сообщение, кнопки — под последней. */
+async function reply(deps: Deps, replyTo: number, html: readonly string[], keyboard?: InlineButton[][]): Promise<void> {
+  await sendHtmlParts(deps.api, deps.ownerId, html, { replyTo, keyboard })
 }
 
 /**
@@ -96,8 +111,7 @@ export async function newPeerDraft(deps: Deps, payload: OwnerPayload): Promise<v
     return
   }
   if (!deps.translator || !deps.languages) {
-    const problem = deps.translatorProblem ?? deps.languagesProblem ?? 'переводчик не настроен'
-    await replyToOwner(deps, payload.sourceMessageId, renderDraftFailed(problem))
+    await reply(deps, payload.sourceMessageId, renderDraftFailed(translatorUnavailable(deps)))
     return
   }
 
@@ -106,7 +120,7 @@ export async function newPeerDraft(deps: Deps, payload: OwnerPayload): Promise<v
     translation = await deps.translator({ target: deps.languages.peer, history: [], text: payload.text })
   } catch (error) {
     await alertModelFailure(deps.alerts, error)
-    await replyToOwner(deps, payload.sourceMessageId, renderDraftFailed(describeError(error)))
+    await reply(deps, payload.sourceMessageId, renderDraftFailed(describeError(error)))
     return
   }
 
@@ -118,23 +132,19 @@ export async function newPeerDraft(deps: Deps, payload: OwnerPayload): Promise<v
     target: deps.languages.peer,
   })
   if (review.verdict !== 'ok') {
-    await replyToOwner(deps, payload.sourceMessageId, renderSuspiciousDraft(translation))
+    await reply(deps, payload.sourceMessageId, renderSuspiciousDraft(translation))
     return
   }
 
-  const draft = deps.store.createDraft({
+  const { html, keyboard } = await prepareDraft(deps, {
     ownerId: deps.ownerId,
     conversationId: null,
     original: payload.text,
     translation,
-    now: deps.now(),
+    head: newPeerHead(deps.languages.peer.nameRu),
+    media: false,
   })
-  await replyToOwner(
-    deps,
-    payload.sourceMessageId,
-    renderDraft(newPeerHead(deps.languages.peer.nameRu), draft.translation),
-    manualKeyboard(draft, { inline: await deps.inlineEnabled(), media: false }),
-  )
+  await reply(deps, payload.sourceMessageId, html, keyboard)
 }
 
 /** Ответ Telegram на inline-запрос, на который отвечать уже поздно. */
@@ -157,23 +167,19 @@ export async function answerInline(deps: Deps, query: { id: string; query: strin
   // не о чем, и кнопку показывать незачем.
   const numeric = /^\d{1,15}$/.test(text)
   const draft = numeric ? deps.store.getDraft(deps.ownerId, Number(text), deps.now()) : undefined
+  let articles: InlineArticle[] = []
+  let button: InlineAnswerButton | undefined
+  if (numeric && !draft) button = { text: DRAFT_EXPIRED, startParameter: 'draft' }
+  if (draft) {
+    articles = [{ id: String(draft.id), title: titleOf(draft.translation), description: INLINE_HINT, text: draft.translation }]
+  }
   try {
-    if (!numeric) {
-      await deps.api.answerInline(query.id, [])
-      return
-    }
-    if (!draft) {
-      await deps.api.answerInline(query.id, [], { button: { text: DRAFT_EXPIRED, startParameter: 'draft' } })
-      return
-    }
-    await deps.api.answerInline(query.id, [
-      { id: String(draft.id), title: titleOf(draft.translation), description: INLINE_HINT, text: draft.translation },
-    ])
+    await deps.api.answerInline(query.id, articles, button && { button })
   } catch (error) {
     // После простоя Telegram может доставить старые inline-запросы: отвечать на них поздно,
     // а сообщение владельцу «не удалось ответить» про кнопку, которую он давно нажал, —
     // лишний шум. Любая другая ошибка пробрасывается: владелец должен о ней узнать.
-    if (error instanceof TelegramError && STALE_QUERY.test(error.description)) {
+    if (isTelegramError(error, STALE_QUERY)) {
       deps.alerts.log('inline-запрос устарел — ответ не нужен')
       return
     }

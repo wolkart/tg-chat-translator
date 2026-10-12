@@ -1,6 +1,6 @@
 import type { Chat, Message } from 'grammy/types'
 import { alertModelFailure } from '../../alerts.ts'
-import type { Deps } from '../../deps.ts'
+import { translatorUnavailable, type Deps } from '../../deps.ts'
 import { detectLanguage } from '../../lang/detect.ts'
 import { extractMedia, mediaSpec, unsupportedLabel } from '../../media.ts'
 import {
@@ -125,7 +125,7 @@ export function incomingSteps(deps: Deps): Step<Replica>[] {
         // языке или «ok» показываются как есть — бесплатно и без лишней отправки текста наружу.
         if (replica.direction !== 'peer' || !replica.text || replica.verdict !== 'foreign') return 'next'
         if (!deps.translator || !deps.languages) {
-          replica.translationError = deps.translatorProblem ?? deps.languagesProblem ?? 'переводчик не настроен'
+          replica.translationError = translatorUnavailable(deps)
           return 'next'
         }
         const history = deps.store.recentReplicas(replica.conversation!.id)

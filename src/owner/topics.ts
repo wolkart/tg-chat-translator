@@ -1,6 +1,6 @@
 import { MESSAGE_LIMIT, escapeHtml, splitText } from '../html.ts'
 import { sendMediaLadder, type LadderResult } from '../media.ts'
-import { TelegramError, type InlineButton, type TelegramApi } from '../telegram.ts'
+import { isTelegramError, type InlineButton, type TelegramApi } from '../telegram.ts'
 import type { Store } from '../store.ts'
 import type { Conversation, MediaRef, Review } from '../types.ts'
 
@@ -18,15 +18,47 @@ export function topicName(peerName: string): string {
 }
 
 export function isThreadNotFound(error: unknown): boolean {
-  return error instanceof TelegramError && /thread not found/i.test(error.description)
+  return isTelegramError(error, /thread not found/i)
 }
 
 function reason(text: string): string {
   return escapeHtml(text.length > REASON_LIMIT ? `${text.slice(0, REASON_LIMIT)}…` : text)
 }
 
-function chunks(text: string): string[] {
+/** Текст кусками под лимит сообщения, каждый уже экранирован для HTML. */
+export function chunks(text: string): string[] {
   return splitText(text, CHUNK).map(escapeHtml)
+}
+
+/**
+ * Готовые HTML-части одно за другим: ответом на сообщение — только первая (остальные
+ * продолжают её), кнопки — под последней. Возвращает id отправленных сообщений.
+ */
+export async function sendHtmlParts(
+  api: TelegramApi,
+  chatId: number,
+  parts: readonly string[],
+  opts: {
+    threadId?: number
+    replyTo?: number
+    keyboard?: InlineButton[][]
+    /** Замена секретов в каждой части */
+    scrub?: (text: string) => string
+  } = {},
+): Promise<number[]> {
+  const sent: number[] = []
+  for (const [index, part] of parts.entries()) {
+    const last = index === parts.length - 1
+    sent.push(
+      await api.sendText(chatId, opts.scrub ? opts.scrub(part) : part, {
+        html: true,
+        ...(opts.threadId !== undefined && { threadId: opts.threadId }),
+        ...(index === 0 && opts.replyTo !== undefined && { replyTo: opts.replyTo }),
+        ...(last && opts.keyboard && opts.keyboard.length > 0 && { keyboard: opts.keyboard }),
+      }),
+    )
+  }
+  return sent
 }
 
 /** Пометки проверки перевода — текст из спеки translation. */
@@ -193,18 +225,10 @@ export function createTopics(deps: {
     ensure,
 
     async postText(conversation, html, opts = {}) {
-      const keyboard = opts.keyboard && opts.keyboard.length > 0 ? opts.keyboard : undefined
       // Каждая попытка шлёт все части заново: при пересоздании темы старые части остались в удалённой.
-      const ids = await inTopic(conversation, async (threadId) => {
-        const sent: number[] = []
-        for (const [index, part] of html.entries()) {
-          const last = index === html.length - 1
-          sent.push(
-            await deps.api.sendText(deps.ownerChatId, deps.scrub(part), { threadId, html: true, ...(last && keyboard && { keyboard }) }),
-          )
-        }
-        return sent
-      })
+      const ids = await inTopic(conversation, (threadId) =>
+        sendHtmlParts(deps.api, deps.ownerChatId, html, { threadId, keyboard: opts.keyboard, scrub: deps.scrub }),
+      )
       remember(conversation, ids)
       return ids
     },

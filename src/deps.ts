@@ -6,6 +6,11 @@ import type { TelegramApi } from './telegram.ts'
 import type { Reviewer } from './translate/check.ts'
 import type { Translator } from './translate/llm.ts'
 
+/** Почему переводчика нет: причина из настройки или общая фраза. Один текст для всех мест показа. */
+export function translatorUnavailable(deps: Deps): string {
+  return deps.translatorProblem ?? deps.languagesProblem ?? 'переводчик не настроен'
+}
+
 /**
  * Всё, что нужно каналам и стороне владельца. Собирается в main.ts,
  * в тестах — из подделок (test/setup.ts).

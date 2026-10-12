@@ -1,8 +1,8 @@
 import { alertModelFailure } from '../../alerts.ts'
-import type { Deps } from '../../deps.ts'
+import { translatorUnavailable, type Deps } from '../../deps.ts'
 import { escapeHtml, splitText } from '../../html.ts'
 import { mediaSpec, sendMediaLadder } from '../../media.ts'
-import { manualKeyboard, renderDraft } from '../../owner/manual-send.ts'
+import { prepareDraft } from '../../owner/manual-send.ts'
 import { renderDryRun, renderNotTranslated, renderSent, renderSuspiciousReply } from '../../owner/topics.ts'
 import { describeError } from '../../telegram.ts'
 import type { Conversation, OwnerPayload } from '../../types.ts'
@@ -37,17 +37,15 @@ async function notSent(
     await deps.topics.postText(conversation, [lines.join('\n')])
     return false
   }
-  lines.push(label ? 'Перевод подписи:' : 'Перевод:')
-  const draft = deps.store.createDraft({
+  const { html, keyboard } = await prepareDraft(deps, {
     ownerId: conversation.ownerId,
     conversationId: conversation.id,
     original: payload.text,
     translation,
-    now: deps.now(),
+    head: [...lines, label ? 'Перевод подписи:' : 'Перевод:'].join('\n'),
+    media: label !== null,
   })
-  await deps.topics.postText(conversation, renderDraft(lines.join('\n'), draft.translation), {
-    keyboard: manualKeyboard(draft, { inline: await deps.inlineEnabled(), media: label !== null }),
-  })
+  await deps.topics.postText(conversation, html, { keyboard })
   return false
 }
 
@@ -72,7 +70,7 @@ export async function sendOwnerReply(
     if (!deps.translator || !deps.languages) {
       await deps.topics.postText(
         conversation,
-        renderNotTranslated(deps.translatorProblem ?? deps.languagesProblem ?? 'переводчик не настроен'),
+        renderNotTranslated(translatorUnavailable(deps)),
       )
       return false
     }
