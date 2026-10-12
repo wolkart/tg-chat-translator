@@ -10,6 +10,7 @@ import {
   renderOwnerDirect,
   renderOwnerDirectMarker,
   renderOwnerUnsupported,
+  renderSent,
   renderUnsupported,
   renderUntranslated,
 } from '../../owner/topics.ts'
@@ -42,6 +43,7 @@ export function parseBusinessMessage(message: Message, connection: Connection, b
     text,
     media,
     unsupported: unsupportedLabel(message),
+    viaBot: message.via_bot?.id === botId,
   }
 }
 
@@ -62,13 +64,38 @@ export function incomingSteps(deps: Deps): Step<Replica>[] {
       },
     },
     {
-      // Разговор начинает только собеседник, пишущий на чужом языке. Друзья, пишущие
-      // на языке владельца, не попадают ни в базу, ни к модели.
+      // Перевод, который владелец отправил сам — кнопкой «Отправить через бота» или вставив
+      // скопированное, — узнаём по тексту: в теме он покажется ответом с оригиналом, а не
+      // «Вы в личке» на чужом языке. Только текст: вложение через бота не уходит.
+      name: 'черновик',
+      run: (replica) => {
+        if (replica.direction === 'owner-direct' && replica.text && !replica.media) {
+          replica.draft = deps.store.findDraftByTranslation(replica.ownerId, replica.text, deps.now())
+        }
+        return 'next'
+      },
+    },
+    {
+      // Разговор начинает собеседник, пишущий на чужом языке, — или владелец, отправивший
+      // перевод через бота. Друзья, пишущие на языке владельца, не попадают ни в базу, ни к модели.
       name: 'разговор',
       run: (replica) => {
         const existing = deps.store.findConversationByPeer(replica.ownerId, replica.peerChatId)
         if (existing) {
           replica.conversation = existing
+          return 'next'
+        }
+        // Только по via_bot, а не по совпадению текста: короткий перевод («OK», «Thanks!»)
+        // совпал бы с обычным сообщением другу, и у друга появилась бы тема. lastPeerAt = 0:
+        // пока собеседник не ответил, разговор не активен и в «Кому?» не попадает.
+        if (replica.direction === 'owner-direct' && replica.viaBot) {
+          replica.conversation = deps.store.createConversation({
+            ownerId: replica.ownerId,
+            connectionId: replica.connectionId,
+            peerChatId: replica.peerChatId,
+            peerName: replica.peerName,
+            lastPeerAt: 0,
+          })
           return 'next'
         }
         if (replica.direction !== 'peer' || !deps.languages || replica.verdict !== 'foreign') return 'stop'
@@ -143,11 +170,14 @@ export function incomingSteps(deps: Deps): Step<Replica>[] {
           return 'stop'
         }
 
-        // То, что не похоже на перевод, переводом и не храним.
+        // То, что не похоже на перевод, переводом и не храним. Отправленный вручную перевод —
+        // в истории как обычный ответ владельца: его текст и перевод.
         const translation = replica.review?.verdict === 'not-translation' ? null : (replica.translation ?? null)
         deps.store.addReplica(
           conversation.id,
-          { role: isPeer ? 'peer' : 'owner', original: historyText(replica), translation },
+          replica.draft
+            ? { role: 'owner', original: replica.draft.original, translation: replica.draft.translation }
+            : { role: isPeer ? 'peer' : 'owner', original: historyText(replica), translation },
           deps.now(),
         )
         if (isPeer) deps.store.touchPeer(conversation.id, deps.now())
@@ -158,6 +188,7 @@ export function incomingSteps(deps: Deps): Step<Replica>[] {
 }
 
 function textFor(replica: Replica): string[] {
+  if (replica.draft) return renderSent(replica.draft.original, replica.draft.translation)
   if (replica.direction === 'owner-direct') return renderOwnerDirect(replica.text)
   if (replica.translation) return renderIncoming(replica.translation, replica.text, replica.review)
   if (replica.translationError) return renderUntranslated(replica.text, replica.translationError)

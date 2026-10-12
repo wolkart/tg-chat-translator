@@ -412,3 +412,60 @@ test('перевод не удался — проверка не вызывае�
   await onBusinessMessage(deps, messageFixture('business-message-peer-text'))
   assert.equal(reviewed, 0)
 })
+
+const MARIA_ID = 200005
+
+test('разбор: сообщение владельца, отправленное через бота, помечено viaBot', () => {
+  const via = parseBusinessMessage(messageFixture('business-message-via-bot'), ownerConnection, BOT_ID)
+  if (via === 'echo') return assert.fail('отправка через бота — не эхо')
+  assert.equal(via.direction, 'owner-direct')
+  assert.equal(via.viaBot, true)
+  const direct = parseBusinessMessage(messageFixture('business-message-owner-direct'), ownerConnection, BOT_ID)
+  if (direct === 'echo') return assert.fail('своё сообщение владельца — не эхо')
+  assert.equal(direct.viaBot, false)
+})
+
+test('спека: перевод, отправленный через бота, заводит разговор и тему с «Вы: оригинал → перевод»', async () => {
+  const { deps, tg, store, translator, connectOwner } = setupDeps()
+  connectOwner()
+  store.createDraft({ ownerId: OWNER_ID, conversationId: null, original: 'Привет! Я по поводу квартиры', translation: "Hi! I'm writing about the apartment.", now: deps.now() })
+  await onBusinessMessage(deps, messageFixture('business-message-via-bot'))
+
+  const conversation = store.findConversationByPeer(OWNER_ID, MARIA_ID)!
+  assert.ok(conversation)
+  assert.equal(conversation.lastPeerAt, 0)
+  assert.deepEqual(store.activeConversations(OWNER_ID, deps.now()), [])
+  assert.equal(tg.callsOf('createTopic')[0]!.name, 'Maria')
+  assert.equal(tg.callsOf('sendText').at(-1)!.text, "<i>Вы:</i> Привет! Я по поводу квартиры\n→ Hi! I'm writing about the apartment.")
+  assert.deepEqual(store.recentReplicas(conversation.id), [{ role: 'owner', text: 'Привет! Я по поводу квартиры' }])
+  assert.equal(translator.calls.length, 0)
+})
+
+test('отправка через бота без сохранённого перевода (устарел) — разговор всё равно заводится', async () => {
+  const { deps, tg, store, connectOwner } = setupDeps()
+  connectOwner()
+  await onBusinessMessage(deps, messageFixture('business-message-via-bot'))
+  assert.ok(store.findConversationByPeer(OWNER_ID, MARIA_ID))
+  assert.equal(tg.callsOf('sendText').at(-1)!.text, "<i>Вы в личке:</i> Hi! I'm writing about the apartment.")
+})
+
+test('короткое «OK» другу совпало с переводом, но не через бота — тема не появляется', async () => {
+  const { deps, tg, store, connectOwner } = setupDeps()
+  connectOwner()
+  store.createDraft({ ownerId: OWNER_ID, conversationId: null, original: 'Ок', translation: 'OK', now: deps.now() })
+  const message = { ...messageFixture('business-message-owner-direct'), text: 'OK' }
+  await onBusinessMessage(deps, message)
+  assert.equal(store.findConversationByPeer(OWNER_ID, PEER_ID), undefined)
+  assert.equal(tg.calls.length, 0)
+})
+
+test('спека: в начатом разговоре вставленный перевод — «Вы: оригинал → перевод», в истории оригинал', async () => {
+  const { deps, tg, store, connectOwner } = setupDeps()
+  connectOwner()
+  await onBusinessMessage(deps, messageFixture('business-message-peer-text'))
+  const conversation = store.findConversationByPeer(OWNER_ID, PEER_ID)!
+  store.createDraft({ ownerId: OWNER_ID, conversationId: conversation.id, original: 'Отлично, а ты?', translation: 'Great, and you?', now: deps.now() })
+  await onBusinessMessage(deps, { ...messageFixture('business-message-owner-direct'), text: 'Great, and you?\n' })
+  assert.equal(tg.callsOf('sendText').at(-1)!.text, '<i>Вы:</i> Отлично, а ты?\n→ Great, and you?')
+  assert.deepEqual(store.recentReplicas(conversation.id).at(-1), { role: 'owner', text: 'Отлично, а ты?' })
+})

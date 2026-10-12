@@ -1,0 +1,29 @@
+{
+  "update_id": 1108,
+  "business_message": {
+    "business_connection_id": "BCOWNER000001",
+    "message_id": 508,
+    "from": {
+      "id": 100001,
+      "is_bot": false,
+      "first_name": "Owner",
+      "last_name": "Test",
+      "username": "owner_test",
+      "language_code": "ru",
+      "is_premium": true
+    },
+    "chat": {
+      "id": 200005,
+      "first_name": "Maria",
+      "type": "private"
+    },
+    "date": 1760000150,
+    "text": "Hi! I'm writing about the apartment.",
+    "via_bot": {
+      "id": 300003,
+      "is_bot": true,
+      "first_name": "Translator",
+      "username": "translator_test_bot"
+    }
+  }
+}

@@ -7,7 +7,7 @@ import { FIRST_TEXT_ONLY } from '../src/owner/manual-send.ts'
 import { STRAY_TOPIC } from '../src/owner/routing.ts'
 import { CONNECTION_ID, OWNER_ID, PEER_ID, fixture } from './helpers.ts'
 import { TelegramError } from '../src/telegram.ts'
-import { setupDeps } from './setup.ts'
+import { fakeTranslator, setupDeps } from './setup.ts'
 
 function withUpdateId(update: Update, updateId: number): Update {
   return { ...update, update_id: updateId }
@@ -311,4 +311,71 @@ test('inline-ответ не ушёл — владелец знает, что н
 
 test('бот просит у Telegram inline-запросы — иначе «Отправить через бота» молча не работает', () => {
   assert.ok(ALLOWED_UPDATES.includes('inline_query'))
+})
+
+test('спека: новый собеседник ответил — написать первым, отправить через бота, ответ в той же теме, дальше автоматически', async () => {
+  const dictionary: Record<string, string> = {
+    'Привет! Я по поводу квартиры': "Hi! I'm writing about the apartment.",
+    "Yes, it's still available": 'Да, ещё свободна',
+    'Когда можно посмотреть?': 'When can I see it?',
+  }
+  const translator = fakeTranslator((request) => dictionary[request.text] ?? `[${request.target.code}] ${request.text}`)
+  const { app, tg, store, connectOwner } = started({ overrides: { translator: translator.translate } })
+  connectOwner()
+  const MARIA = 200005
+
+  // 1. Владелец пишет вне тем — перевод с кнопками.
+  const first = fixture('owner-message-outside')
+  first.message!.text = 'Привет! Я по поводу квартиры'
+  await app.handleUpdate(first)
+  const draftMessage = tg.callsOf('sendText').at(-1)!
+  const draftId = draftMessage.opts.keyboard![0]![0]!.chooseChat!
+
+  // 2. «Отправить через бота» → выбор чата → Telegram спрашивает бота.
+  const query = fixture('inline-query-owner')
+  query.inline_query!.query = draftId
+  await app.handleUpdate(query)
+  const [article] = tg.callsOf('answerInline')[0]!.articles
+  assert.equal(article!.text, "Hi! I'm writing about the apartment.")
+
+  // 3. Нажатие на вариант: сообщение «via @бот» приходит боту из лички Maria.
+  const sent = fixture('business-message-via-bot')
+  sent.business_message!.text = article!.text
+  await app.handleUpdate(sent)
+  const conversation = store.findConversationByPeer(OWNER_ID, MARIA)!
+  assert.ok(conversation)
+
+  // 4. Maria отвечает — перевод в ту же тему.
+  const answer = withUpdateId(fixture('business-message-peer-text'), 1180)
+  answer.business_message!.chat = { id: MARIA, type: 'private', first_name: 'Maria' }
+  answer.business_message!.from = { id: MARIA, is_bot: false, first_name: 'Maria' }
+  answer.business_message!.message_id = 720
+  answer.business_message!.text = "Yes, it's still available"
+  await app.handleUpdate(answer)
+  assert.equal(tg.callsOf('createTopic').length, 1)
+  const topicId = store.findConversationByPeer(OWNER_ID, MARIA)!.topicId!
+  const translated = tg.callsOf('sendText').at(-1)!
+  assert.equal(translated.opts.threadId, topicId)
+  assert.match(translated.text, /^Да, ещё свободна/)
+
+  // 5. Ответ владельца в теме уходит Maria от его имени, сам.
+  const reply = withUpdateId(fixture('owner-message-in-topic'), 1181)
+  reply.message!.message_thread_id = topicId
+  reply.message!.text = 'Когда можно посмотреть?'
+  await app.handleUpdate(reply)
+  const [toMaria] = tg.sentAsOwner()
+  assert.ok(toMaria && toMaria.method === 'sendText')
+  assert.equal(toMaria.chatId, MARIA)
+  assert.equal(toMaria.text, 'When can I see it?')
+  assert.equal(toMaria.opts.businessConnectionId, CONNECTION_ID)
+})
+
+test('отправка через бота, доставленная повторно после перезапуска, — одна тема и одна строка «Вы:»', async () => {
+  const { app, tg, store, connectOwner, deps } = started()
+  connectOwner()
+  store.createDraft({ ownerId: OWNER_ID, conversationId: null, original: 'Привет! Я по поводу квартиры', translation: "Hi! I'm writing about the apartment.", now: deps.now() })
+  await app.handleUpdate(fixture('business-message-via-bot'))
+  await app.handleUpdate(fixture('business-message-via-bot'))
+  assert.equal(tg.callsOf('createTopic').length, 1)
+  assert.equal(tg.callsOf('sendText').filter((call) => call.text.startsWith('<i>Вы:</i>')).length, 1)
 })

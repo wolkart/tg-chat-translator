@@ -86,6 +86,10 @@ export type Replica = {
   media: MediaRef | null
   /** Что пришло, если переслать это нельзя: «геопозицию», «контакт» */
   unsupported: string | null
+  /** Сообщение владельца отправлено кнопкой «Отправить через бота» (via @бот) */
+  viaBot?: boolean
+  /** Перевод для ручной отправки, с которым совпал текст владельца */
+  draft?: Draft
   verdict?: Verdict
   conversation?: Conversation
   translation?: string | null
