@@ -1,5 +1,5 @@
 import type { CallbackQuery, Message, Update } from 'grammy/types'
-import { isAllowedOwner, onBusinessConnection } from './channels/private-chat/connection.ts'
+import { BOT_SETTINGS_PATH, SETTINGS_PATH, isAllowedOwner, onBusinessConnection } from './channels/private-chat/connection.ts'
 import { onBusinessMessage } from './channels/private-chat/incoming.ts'
 import { sendOwnerReply } from './channels/private-chat/outgoing.ts'
 import type { Deps } from './deps.ts'
@@ -13,11 +13,13 @@ export const CANT_FORWARD = 'Такое бот переслать не умее�
 /** Нет записи — бот ещё не видел подключения; запись выключена — владелец отключил бота. */
 function connectionLine(connection: Connection | undefined): string {
   if (!connection) {
-    return 'бот его ещё не видел. Если уже подключили — появится с первым сообщением в личке; ' +
-      'если нет — Настройки → Автоматизация чатов'
+    return `бот его ещё не видел. Если уже подключили — появится с первым сообщением в личке; если нет — ${SETTINGS_PATH}`
   }
-  return connection.isEnabled ? 'есть' : 'нет — подключите бота: Настройки → Автоматизация чатов'
+  return connection.isEnabled ? 'есть' : `нет — подключите бота: ${SETTINGS_PATH}`
 }
+
+export const WRITE_FIRST_HINT =
+  'Написать первым: отправьте текст сюда вне тем — бот переведёт и даст кнопку «Отправить через бота»'
 
 /** Статус по /start: по нему владелец видит, работает ли перевод и что включить. */
 export function statusText(deps: Deps): string {
@@ -30,10 +32,11 @@ export function statusText(deps: Deps): string {
     'Статус переводчика',
     `• Подключение к аккаунту: ${connectionLine(connection)}`,
     `• Право отвечать от вашего имени: ${
-      !connected ? '—' : connection.canReply ? 'есть' : 'нет — включите «Ответы на сообщения»: Настройки → Автоматизация чатов → этот бот'
+      !connected ? '—' : connection.canReply ? 'есть' : `нет — включите «Ответы на сообщения»: ${BOT_SETTINGS_PATH}`
     }`,
     `• Языки: ${languages}`,
     `• Модель: ${deps.translatorInfo}`,
+    `• ${WRITE_FIRST_HINT}`,
     ...(deps.dry ? ['• Холостой прогон: собеседникам ничего не уходит'] : []),
   ].join('\n')
 }

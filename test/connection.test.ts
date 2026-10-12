@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync, readdirSync } from 'node:fs'
 import {
   CONNECTED,
   DISABLED,
@@ -90,4 +91,20 @@ test('подключение до запуска: первый раз спраш
   assert.equal(first.canReply, true)
   assert.deepEqual(first, second)
   assert.deepEqual(notices(tg), [CONNECTED])
+})
+
+test('спека: путь к настройке — «Настройки → Аккаунт → Автоматизация чатов», для Mac — через «Изменить профиль»', () => {
+  for (const text of [NO_REPLY, DISABLED]) {
+    assert.match(text, /Настройки → Аккаунт → Автоматизация чатов/)
+    assert.match(text, /на Mac — Настройки → Изменить профиль → Автоматизация чатов/)
+  }
+  assert.match(NO_REPLY, /«Ответы на сообщения» \(раздел «Сообщения»\): Настройки → Аккаунт → Автоматизация чатов → этот бот/)
+})
+
+test('старый путь «Настройки → Автоматизация чатов» нигде в текстах бота не остался', () => {
+  const files = readdirSync(new URL('../src/', import.meta.url), { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith('.ts'))
+  for (const file of files) {
+    const source = readFileSync(new URL(`../src/${file}`, import.meta.url), 'utf8')
+    assert.ok(!source.includes('Настройки → Автоматизация чатов'), file)
+  }
 })

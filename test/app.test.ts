@@ -89,6 +89,17 @@ test('/start — статус без подключения', async () => {
   assert.match(status, /Модель: OpenRouter · openai\/gpt-4\.1-mini/)
 })
 
+test('спека: в статусе — как написать первым и точный путь к настройке', async () => {
+  const { app, tg } = started()
+  await app.handleUpdate(fixture('owner-message-start'))
+  const status = tg.callsOf('sendText')[0]!.text
+  assert.match(
+    status,
+    /• Написать первым: отправьте текст сюда вне тем — бот переведёт и даст кнопку «Отправить через бота»/,
+  )
+  assert.match(status, /если нет — Настройки → Аккаунт → Автоматизация чатов \(на Mac — Настройки → Изменить профиль/)
+})
+
 test('/start — подключение выключено', () => {
   const { deps, connectOwner } = setupDeps()
   connectOwner({ isEnabled: false })
