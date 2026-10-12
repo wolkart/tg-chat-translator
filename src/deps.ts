@@ -24,7 +24,7 @@ export type Deps = {
   /** null — нет ключа модели: входящие показываются без перевода */
   translator: Translator | null
   translatorProblem: string | null
-  /** Для статуса: «OpenRouter · openai/gpt-4.1-mini» или причина, почему модели нет */
+  /** Для статуса: «OpenRouter · anthropic/claude-haiku-5.5» или причина, почему модели нет */
   translatorInfo: string
   /** Проверка ответа модели до показа владельцу и до отправки собеседнику */
   review: Reviewer

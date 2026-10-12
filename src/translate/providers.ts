@@ -24,7 +24,9 @@ export const PROVIDERS: Provider[] = [
     baseUrl: 'https://openrouter.ai/api/v1',
     envKey: 'OPENROUTER_API_KEY',
     keysUrl: 'https://openrouter.ai/keys',
-    models: ['openai/gpt-4.1-mini', 'google/gemini-2.5-flash', 'anthropic/claude-sonnet-5', 'deepseek/deepseek-chat'],
+    // Первая — дефолт новой установки: замер 2026-10-12 (scripts/eval-injection.ts) — лучшая
+    // стойкость к подмене (62 из 63) и в 4 раза дешевле gpt-4.1-mini.
+    models: ['anthropic/claude-haiku-5.5', 'openai/gpt-4.1-mini', 'google/gemini-2.5-flash', 'anthropic/claude-sonnet-5', 'deepseek/deepseek-chat'],
   },
   {
     id: 'deepseek',
