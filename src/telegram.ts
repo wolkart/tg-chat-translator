@@ -1,8 +1,30 @@
 import { GrammyError, InputFile, type Api } from 'grammy'
-import type { BusinessConnection } from 'grammy/types'
+import type { BusinessConnection, InlineKeyboardButton } from 'grammy/types'
 import type { MediaKind } from './types.ts'
 
-export type InlineButton = { text: string; data: string }
+/** Цвет кнопки (Bot API 9.4): зелёный — главное действие экрана, красный — «Отключить»/«Удалить». */
+export type ButtonStyle = 'success' | 'primary' | 'danger'
+
+/**
+ * Кнопка под сообщением. Вид задаёт заполненное поле: data — нажатие приходит боту,
+ * copy — текст ложится в буфер обмена, chooseChat — выбор личного чата и inline-запрос
+ * «@бот <chooseChat>» в нём.
+ */
+export type InlineButton = {
+  text: string
+  data?: string
+  /** copy_text: Telegram принимает до 256 символов */
+  copy?: string
+  /** switch_inline_query_chosen_chat: текст запроса, который подставится после имени бота */
+  chooseChat?: string
+  style?: ButtonStyle
+}
+
+/** Вариант в ответе на inline-запрос: нажатие отправляет text обычным сообщением. */
+export type InlineArticle = { id: string; title: string; description: string; text: string }
+
+/** Кнопка над вариантами inline-ответа: открывает чат с ботом с /start <startParameter>. */
+export type InlineAnswerButton = { text: string; startParameter: string }
 
 export type SendOptions = {
   /** Тема в чате владельца с ботом */
@@ -33,6 +55,8 @@ export type BotInfo = {
   username: string
   canConnectToBusiness: boolean
   hasTopicsEnabled: boolean
+  /** Inline Mode в BotFather: без него не работает кнопка «Отправить через бота» */
+  supportsInlineQueries: boolean
 }
 
 /** Ошибка Telegram в одном виде — и от настоящего API, и от подделки в тестах. */
@@ -69,6 +93,27 @@ export interface TelegramApi {
   editText(chatId: number, messageId: number, text: string): Promise<void>
   deleteMessage(chatId: number, messageId: number): Promise<void>
   getMe(): Promise<BotInfo>
+  /** Ответ на inline-запрос: виден только тому, кто спросил, и не кэшируется */
+  answerInline(queryId: string, articles: readonly InlineArticle[], opts?: { button?: InlineAnswerButton }): Promise<void>
+}
+
+/** Кнопки в формате Bot API. Вынесено из обёртки, чтобы преобразование проверялось тестом. */
+export function toInlineKeyboard(keyboard: readonly (readonly InlineButton[])[]): InlineKeyboardButton[][] {
+  return keyboard.map((row) =>
+    row.map((button): InlineKeyboardButton => {
+      const style = button.style && { style: button.style }
+      if (button.copy !== undefined) return { text: button.text, copy_text: { text: button.copy }, ...style }
+      if (button.chooseChat !== undefined) {
+        // Только личные чаты с людьми: перевод адресован собеседнику, а не группе или боту.
+        return {
+          text: button.text,
+          switch_inline_query_chosen_chat: { query: button.chooseChat, allow_user_chats: true },
+          ...style,
+        }
+      }
+      return { text: button.text, callback_data: button.data ?? '', ...style }
+    }),
+  )
 }
 
 export function toConnectionInfo(connection: BusinessConnection): BusinessConnectionInfo {
@@ -116,11 +161,7 @@ export function createTelegramApi(api: Api, token: string, fetchImpl: typeof fet
       ...(opts.businessConnectionId !== undefined && { business_connection_id: opts.businessConnectionId }),
       ...(opts.html && { parse_mode: 'HTML' as const }),
       ...(opts.caption !== undefined && { caption: opts.caption }),
-      ...(opts.keyboard && {
-        reply_markup: {
-          inline_keyboard: opts.keyboard.map((row) => row.map((b) => ({ text: b.text, callback_data: b.data }))),
-        },
-      }),
+      ...(opts.keyboard && { reply_markup: { inline_keyboard: toInlineKeyboard(opts.keyboard) } }),
     }
   }
 
@@ -189,7 +230,28 @@ export function createTelegramApi(api: Api, token: string, fetchImpl: typeof fet
         username: me.username,
         canConnectToBusiness: me.can_connect_to_business,
         hasTopicsEnabled: me.has_topics_enabled,
+        supportsInlineQueries: me.supports_inline_queries,
       }
+    },
+
+    async answerInline(queryId, articles, opts) {
+      const results = articles.map((article) => ({
+        type: 'article' as const,
+        id: article.id,
+        title: article.title,
+        description: article.description,
+        // Без parse_mode: у собеседника перевод выглядит обычным текстом владельца.
+        input_message_content: { message_text: article.text },
+      }))
+      await call(() =>
+        api.answerInlineQuery(queryId, results, {
+          // Без is_personal Telegram отдал бы закэшированный ответ другому человеку с тем же
+          // запросом — а в ответе перевод владельца.
+          is_personal: true,
+          cache_time: 0,
+          ...(opts?.button && { button: { text: opts.button.text, start_parameter: opts.button.startParameter } }),
+        }),
+      )
     },
   }
 }

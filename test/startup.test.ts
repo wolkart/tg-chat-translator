@@ -8,7 +8,7 @@ import { PROVIDER_DEFAULTS } from '../src/translate/providers.ts'
 import { fakeTelegram } from './fakes.ts'
 import { OWNER_ID } from './helpers.ts'
 
-const healthy: BotInfo = { id: 300003, username: 'translator_test_bot', canConnectToBusiness: true, hasTopicsEnabled: true }
+const healthy: BotInfo = { id: 300003, username: 'translator_test_bot', canConnectToBusiness: true, hasTopicsEnabled: true, supportsInlineQueries: true }
 
 function setup() {
   const tg = fakeTelegram()

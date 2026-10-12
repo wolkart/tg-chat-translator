@@ -96,7 +96,7 @@ test('«Кому?» — вопрос с кнопками в ответ на со
 test('выбор адресата: сообщение уходит ему, вопрос превращается в «Отправлено <имя>»', async () => {
   const { deps, question, sent, send, tg } = await asked()
   const annaButton = question.opts.keyboard![1]![0]!
-  await onChoice(deps, { id: 'CB1', data: annaButton.data }, send)
+  await onChoice(deps, { id: 'CB1', data: annaButton.data! }, send)
   assert.equal(sent.length, 1)
   assert.equal(sent[0]!.conversation.peerName, 'Anna')
   assert.deepEqual(sent[0]!.payload, payload)
@@ -106,8 +106,8 @@ test('выбор адресата: сообщение уходит ему, во�
 test('повторное нажатие ничего не отправляет', async () => {
   const { deps, question, sent, send, tg } = await asked()
   const button = question.opts.keyboard![0]![0]!
-  await onChoice(deps, { id: 'CB1', data: button.data }, send)
-  await onChoice(deps, { id: 'CB2', data: button.data }, send)
+  await onChoice(deps, { id: 'CB1', data: button.data! }, send)
+  await onChoice(deps, { id: 'CB2', data: button.data! }, send)
   assert.equal(sent.length, 1)
   assert.equal(tg.callsOf('answerCallback').at(-1)!.text, ALREADY_HANDLED)
 })
@@ -115,28 +115,28 @@ test('повторное нажатие ничего не отправляет',
 test('«Отмена» ничего не отправляет и удаляет вопрос', async () => {
   const { deps, question, sent, send, tg } = await asked()
   const cancel = question.opts.keyboard!.at(-1)![0]!
-  await onChoice(deps, { id: 'CB1', data: cancel.data }, send)
+  await onChoice(deps, { id: 'CB1', data: cancel.data! }, send)
   assert.equal(sent.length, 0)
   assert.deepEqual(tg.callsOf('deleteMessage')[0], { method: 'deleteMessage', chatId: OWNER_ID, messageId: question.id })
 })
 
 test('не ушло — вопрос говорит об этом', async () => {
   const { deps, question, tg } = await asked()
-  await onChoice(deps, { id: 'CB1', data: question.opts.keyboard![0]![0]!.data }, async () => false)
+  await onChoice(deps, { id: 'CB1', data: question.opts.keyboard![0]![0]!.data! }, async () => false)
   assert.equal(tg.callsOf('editText')[0]!.text, 'Не отправлено Timon — причина в теме')
 })
 
 test('отложенное «Кому?» старше суток чистится', async () => {
   const { deps, store, question, sent, send } = await asked()
   store.cleanup(T0 + DAY + 1)
-  await onChoice(deps, { id: 'CB1', data: question.opts.keyboard![0]![0]!.data }, send)
+  await onChoice(deps, { id: 'CB1', data: question.opts.keyboard![0]![0]!.data! }, send)
   assert.equal(sent.length, 0)
 })
 
 test('ответ на «Отправлено <имя>» (бывший «Кому?») уходит выбранному собеседнику', async () => {
   const { deps, question, send } = await asked()
   const annaButton = question.opts.keyboard![1]![0]!
-  await onChoice(deps, { id: 'CB1', data: annaButton.data }, send)
+  await onChoice(deps, { id: 'CB1', data: annaButton.data! }, send)
   const route = routeOwnerMessage({ replyToMessageId: question.id }, deps.store, OWNER_ID, deps.now())
   assert.equal(route.kind, 'conversation')
   if (route.kind === 'conversation') assert.equal(route.conversation.peerName, 'Anna')

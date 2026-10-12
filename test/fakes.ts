@@ -1,4 +1,4 @@
-import type { BotInfo, BusinessConnectionInfo, MediaOptions, TelegramApi } from '../src/telegram.ts'
+import type { BotInfo, BusinessConnectionInfo, InlineAnswerButton, InlineArticle, MediaOptions, TelegramApi } from '../src/telegram.ts'
 import type { MediaKind } from '../src/types.ts'
 
 export type Call =
@@ -11,6 +11,7 @@ export type Call =
   | { method: 'editText'; chatId: number; messageId: number; text: string }
   | { method: 'deleteMessage'; chatId: number; messageId: number }
   | { method: 'getMe' }
+  | { method: 'answerInline'; queryId: string; articles: readonly InlineArticle[]; button?: InlineAnswerButton }
 
 type Method = Call['method']
 
@@ -75,7 +76,18 @@ export function fakeTelegram(init: { connections?: BusinessConnectionInfo[]; me?
     async getMe() {
       calls.push({ method: 'getMe' })
       maybeFail('getMe')
-      return { id: 300003, username: 'translator_test_bot', canConnectToBusiness: true, hasTopicsEnabled: true, ...init.me }
+      return {
+        id: 300003,
+        username: 'translator_test_bot',
+        canConnectToBusiness: true,
+        hasTopicsEnabled: true,
+        supportsInlineQueries: true,
+        ...init.me,
+      }
+    },
+    async answerInline(queryId, articles, opts = {}) {
+      calls.push({ method: 'answerInline', queryId, articles, ...(opts.button && { button: opts.button }) })
+      maybeFail('answerInline')
     },
   }
 
