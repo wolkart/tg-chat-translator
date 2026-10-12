@@ -1,6 +1,6 @@
 import { MESSAGE_LIMIT, escapeHtml, splitText } from '../html.ts'
 import { sendMediaLadder, type LadderResult } from '../media.ts'
-import { TelegramError, type TelegramApi } from '../telegram.ts'
+import { TelegramError, type InlineButton, type TelegramApi } from '../telegram.ts'
 import type { Store } from '../store.ts'
 import type { Conversation, MediaRef, Review } from '../types.ts'
 
@@ -109,11 +109,6 @@ function withTranslation(head: string, translation: string): string[] {
   return [`${head}\nПеревод — ниже.`, ...parts]
 }
 
-/** Telegram не принял отправку: причина и готовый перевод, чтобы ничего не пропало. */
-export function renderNotSent(why: string, translation: string): string[] {
-  return withTranslation(`<b>Не отправлено.</b> ${reason(why)}`, translation)
-}
-
 /** Перевод ответа владельца не прошёл проверку — собеседнику ничего не ушло. */
 export function renderSuspiciousReply(translation: string): string[] {
   return withTranslation('<b>Не отправлено:</b> перевод выглядит подозрительно', translation)
@@ -146,8 +141,8 @@ export function renderCaption(text: string): string {
 export type Topics = {
   /** Тема разговора; если её ещё нет — создаётся с именем собеседника. */
   ensure(conversation: Conversation): Promise<number>
-  /** Сообщения в тему разговора (уже готовый HTML). Возвращает id сообщений. */
-  postText(conversation: Conversation, html: readonly string[]): Promise<number[]>
+  /** Сообщения в тему разговора (уже готовый HTML); кнопки — под последним. Возвращает id сообщений. */
+  postText(conversation: Conversation, html: readonly string[], opts?: { keyboard?: InlineButton[][] }): Promise<number[]>
   /** Вложение в тему разговора по лестнице пересылки. */
   postMedia(conversation: Conversation, media: MediaRef, captionHtml?: string): Promise<LadderResult>
 }
@@ -197,12 +192,16 @@ export function createTopics(deps: {
   return {
     ensure,
 
-    async postText(conversation, html) {
+    async postText(conversation, html, opts = {}) {
+      const keyboard = opts.keyboard && opts.keyboard.length > 0 ? opts.keyboard : undefined
       // Каждая попытка шлёт все части заново: при пересоздании темы старые части остались в удалённой.
       const ids = await inTopic(conversation, async (threadId) => {
         const sent: number[] = []
-        for (const part of html) {
-          sent.push(await deps.api.sendText(deps.ownerChatId, deps.scrub(part), { threadId, html: true }))
+        for (const [index, part] of html.entries()) {
+          const last = index === html.length - 1
+          sent.push(
+            await deps.api.sendText(deps.ownerChatId, deps.scrub(part), { threadId, html: true, ...(last && keyboard && { keyboard }) }),
+          )
         }
         return sent
       })

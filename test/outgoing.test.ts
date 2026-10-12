@@ -76,25 +76,128 @@ test('перевод не удался — собеседнику ничего, 
   assert.equal(tg.callsOf('sendText').at(-1)!.text, '<b>Не отправлено:</b> перевод не удался — модель не ответила за 30 с')
 })
 
-test('Telegram отказал — «Не отправлено», причина и перевод, повтора нет', async () => {
+const SETTINGS = 'Настройки → Аккаунт → Автоматизация чатов → этот бот (на Mac — Настройки → Изменить профиль → Автоматизация чатов)'
+
+test('спека: собеседник давно не писал — понятная причина, перевод и кнопки, повтора нет', async () => {
   const { deps, tg, store, conversation } = prepared()
   tg.failNext('sendText', new TelegramError(400, 'Bad Request: BUSINESS_PEER_USAGE_MISSING'))
   const ok = await sendOwnerReply(deps, conversation, reply, { outsideTopic: false })
   assert.equal(ok, false)
   assert.equal(tg.sentAsOwner().length, 1)
+  const notice = tg.callsOf('sendText').at(-1)!
   assert.equal(
-    tg.callsOf('sendText').at(-1)!.text,
-    '<b>Не отправлено.</b> Bad Request: BUSINESS_PEER_USAGE_MISSING\nПеревод:\n[en] Отлично, а ты?',
+    notice.text,
+    '<b>Не отправлено:</b> от Alex Peer давно не было сообщений, а от вашего имени бот может писать только тем, ' +
+      'кто писал вам недавно. Отправьте перевод сами — кнопками ниже. Когда Alex Peer ответит, бот снова будет отправлять сам.\n' +
+      'Перевод:\n[en] Отлично, а ты?',
   )
+  const draftId = Number(notice.opts.keyboard![0]![0]!.chooseChat)
+  assert.deepEqual(notice.opts.keyboard, [
+    [{ text: 'Отправить через бота', chooseChat: String(draftId), style: 'success' }],
+    [{ text: 'Скопировать', copy: '[en] Отлично, а ты?' }],
+  ])
+  const draft = store.getDraft(OWNER_ID, draftId, deps.now())!
+  assert.equal(draft.conversationId, conversation.id)
+  assert.equal(draft.original, 'Отлично, а ты?')
   assert.equal(store.recentReplicas(conversation.id).length, 1)
 })
 
-test('бот отключён от аккаунта — не отправляем, говорим почему', async () => {
+test('спека: бот не видит чат — путь к настройке и кнопки', async () => {
+  const { deps, tg, conversation } = prepared()
+  tg.failNext('sendText', new TelegramError(400, 'Bad Request: BUSINESS_PEER_INVALID'))
+  await sendOwnerReply(deps, conversation, reply, { outsideTopic: false })
+  const notice = tg.callsOf('sendText').at(-1)!
+  assert.equal(
+    notice.text,
+    `<b>Не отправлено:</b> бот не видит чат с Alex Peer — его нет среди чатов, доступных боту. Добавьте его: ${SETTINGS}. ` +
+      'Пока отправьте перевод сами — кнопками ниже.\nПеревод:\n[en] Отлично, а ты?',
+  )
+  assert.equal(notice.opts.keyboard!.length, 2)
+})
+
+test('спека: незнакомый отказ — словами Telegram, перевод и кнопки', async () => {
+  const { deps, tg, conversation } = prepared()
+  tg.failNext('sendText', new TelegramError(403, 'Forbidden: bot was blocked by the user'))
+  await sendOwnerReply(deps, conversation, reply, { outsideTopic: false })
+  const notice = tg.callsOf('sendText').at(-1)!
+  assert.equal(
+    notice.text,
+    '<b>Не отправлено:</b> Telegram не принял сообщение — Forbidden: bot was blocked by the user\nПеревод:\n[en] Отлично, а ты?',
+  )
+  assert.equal(notice.opts.keyboard!.length, 2)
+})
+
+test('спека: нет права отвечать — бот не пробует отправить, в холостом прогоне нет «ушло бы»', async () => {
+  for (const dry of [false, true]) {
+    const { deps, tg, connectOwner, conversation } = prepared({ overrides: { dry } })
+    connectOwner({ canReply: false })
+    await sendOwnerReply(deps, conversation, reply, { outsideTopic: false })
+    assert.equal(tg.sentAsOwner().length, 0)
+    const notice = tg.callsOf('sendText').at(-1)!
+    assert.equal(
+      notice.text,
+      `<b>Не отправлено:</b> боту не разрешено отвечать от вашего имени. Включите «Ответы на сообщения»: ${SETTINGS}.\n` +
+        'Перевод:\n[en] Отлично, а ты?',
+    )
+    assert.equal(notice.opts.keyboard!.length, 2)
+    assert.ok(!tg.callsOf('sendText').some((call) => call.text.includes('Холостой прогон')))
+  }
+})
+
+test('бот отключён от аккаунта — не отправляем, говорим почему и как подключить', async () => {
   const { deps, tg, connectOwner, conversation } = prepared()
   connectOwner({ isEnabled: false })
   await sendOwnerReply(deps, conversation, reply, { outsideTopic: false })
   assert.equal(tg.sentAsOwner().length, 0)
-  assert.match(tg.callsOf('sendText').at(-1)!.text, /Не отправлено\.<\/b> бот отключён/)
+  const notice = tg.callsOf('sendText').at(-1)!
+  assert.match(notice.text, /^<b>Не отправлено:<\/b> бот отключён от вашего аккаунта\. Подключите его снова: Настройки → Аккаунт/)
+  assert.equal(notice.opts.keyboard!.length, 2)
+})
+
+test('Inline Mode выключен — под «Не отправлено» одна «Скопировать»', async () => {
+  const { deps, tg, conversation } = prepared({ overrides: { inlineEnabled: async () => false } })
+  tg.failNext('sendText', new TelegramError(400, 'Bad Request: BUSINESS_PEER_USAGE_MISSING'))
+  await sendOwnerReply(deps, conversation, reply, { outsideTopic: false })
+  assert.deepEqual(tg.callsOf('sendText').at(-1)!.opts.keyboard, [[{ text: 'Скопировать', copy: '[en] Отлично, а ты?' }]])
+})
+
+test('спека: вложение на отказе — не загружается заново, перевод подписи, одна «Скопировать» и подсказка', async () => {
+  const { deps, tg, conversation } = prepared()
+  tg.failNext('sendMedia', new TelegramError(400, 'Bad Request: BUSINESS_PEER_USAGE_MISSING'))
+  await sendOwnerReply(
+    deps,
+    conversation,
+    { text: 'Это тебе', media: { kind: 'photo', fileId: 'OWNER_PHOTO_1' }, sourceMessageId: 904 },
+    { outsideTopic: false },
+  )
+  assert.equal(tg.callsOf('downloadFile').length, 0)
+  assert.equal(tg.callsOf('sendMedia').length, 1)
+  const notice = tg.callsOf('sendText').at(-1)!
+  assert.match(notice.text, /^<b>Не отправлено:<\/b> от Alex Peer давно не было сообщений/)
+  assert.match(notice.text, /\n<i>Фото отправьте Alex Peer сами — через кнопку бот отправляет только текст\.<\/i>\nПеревод подписи:\n\[en\] Это тебе$/)
+  assert.deepEqual(notice.opts.keyboard, [[{ text: 'Скопировать', copy: '[en] Это тебе' }]])
+})
+
+test('стикер на отказе — подсказка отправить самому, без кнопок: переводить нечего', async () => {
+  const { deps, tg, conversation } = prepared()
+  tg.failNext('sendMedia', new TelegramError(400, 'Bad Request: BUSINESS_PEER_USAGE_MISSING'))
+  await sendOwnerReply(deps, conversation, { text: '', media: { kind: 'sticker', fileId: 'S' }, sourceMessageId: 905 }, { outsideTopic: false })
+  const notice = tg.callsOf('sendText').at(-1)!
+  assert.match(notice.text, /\n<i>Стикер отправьте Alex Peer сами — через кнопку бот отправляет только текст\.<\/i>$/)
+  assert.equal(notice.opts.keyboard, undefined)
+})
+
+test('прочая ошибка первой ступени — вложение, как и раньше, загружается заново', async () => {
+  const { deps, tg, conversation } = prepared()
+  tg.failNext('sendMedia', new TelegramError(400, 'Bad Request: wrong file identifier'))
+  const ok = await sendOwnerReply(
+    deps,
+    conversation,
+    { text: 'Это тебе', media: { kind: 'photo', fileId: 'OWNER_PHOTO_1' }, sourceMessageId: 904 },
+    { outsideTopic: false },
+  )
+  assert.equal(ok, true)
+  assert.equal(tg.callsOf('downloadFile').length, 1)
 })
 
 test('холостой прогон: от имени владельца ничего не уходит, в теме — «ушло бы»', async () => {
@@ -256,4 +359,13 @@ test('проверка ответа получает направление outg
   assert.equal(seen[0]!.translation, '[en] Отлично, а ты?')
   assert.equal(seen[0]!.owner.code, 'ru')
   assert.equal(seen[0]!.target.code, 'en')
+})
+
+test('имя собеседника с «<» и «&» в причине «Не отправлено» экранировано', async () => {
+  const { deps, tg, store } = prepared()
+  const odd = store.createConversation({ ownerId: OWNER_ID, connectionId: CONNECTION_ID, peerChatId: 200007, peerName: 'Tom & <b>Jerry</b>', lastPeerAt: deps.now() })
+  tg.failNext('sendText', new TelegramError(400, 'Bad Request: BUSINESS_PEER_USAGE_MISSING'))
+  await sendOwnerReply(deps, odd, reply, { outsideTopic: false })
+  const notice = tg.callsOf('sendText').at(-1)!
+  assert.match(notice.text, /^<b>Не отправлено:<\/b> от Tom &amp; &lt;b&gt;Jerry&lt;\/b&gt; давно не было сообщений/)
 })

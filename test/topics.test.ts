@@ -7,7 +7,6 @@ import {
   renderAsIs,
   renderDryRun,
   renderIncoming,
-  renderNotSent,
   renderNotTranslated,
   renderOwnerDirect,
   renderSent,
@@ -135,9 +134,6 @@ test('остальные пометки', () => {
   assert.deepEqual(renderOwnerDirect('ok, see you'), ['<i>Вы в личке:</i> ok, see you'])
   assert.deepEqual(renderSent('Отлично, а ты?', 'Great, and you?'), ['<i>Вы:</i> Отлично, а ты?\n→ Great, and you?'])
   assert.deepEqual(renderSent('[фото]', ''), ['<i>Вы:</i> [фото]'])
-  assert.deepEqual(renderNotSent('Forbidden: bot was blocked', 'Great'), [
-    '<b>Не отправлено.</b> Forbidden: bot was blocked\nПеревод:\nGreat',
-  ])
   assert.deepEqual(renderNotTranslated('нет ключа'), ['<b>Не отправлено:</b> перевод не удался — нет ключа'])
   assert.deepEqual(renderUnsupported('Timon', 'геопозицию'), ['Timon прислал геопозицию — посмотрите в личке'])
   assert.deepEqual(renderDryRun('Great'), ['<i>Холостой прогон: ушло бы —</i> Great'])
@@ -150,4 +146,21 @@ test('длинная причина обрезается', () => {
 
 test('имя собеседника с разметкой не ломает пометку', () => {
   assert.deepEqual(renderUnsupported('<b>Boss</b> & Co', 'контакт'), ['&lt;b&gt;Boss&lt;/b&gt; &amp; Co прислал контакт — посмотрите в личке'])
+})
+
+test('кнопки — под последней частью сообщения в теме', async () => {
+  const { tg, topics, conversation } = setup()
+  const keyboard = [[{ text: 'Скопировать', copy: 'Hi' }]]
+  await topics.postText(conversation, ['часть 1', 'часть 2'], { keyboard })
+  const sent = tg.callsOf('sendText')
+  assert.equal(sent[0]!.opts.keyboard, undefined)
+  assert.deepEqual(sent[1]!.opts.keyboard, keyboard)
+})
+
+test('тему удалили — кнопки всё равно под последней частью в новой теме', async () => {
+  const { tg, topics, conversation } = setup()
+  await topics.ensure(conversation)
+  tg.failNext('sendText', new TelegramError(400, 'Bad Request: message thread not found'))
+  await topics.postText(conversation, ['перевод'], { keyboard: [[{ text: 'Скопировать', copy: 'Hi' }]] })
+  assert.deepEqual(tg.callsOf('sendText').at(-1)!.opts.keyboard, [[{ text: 'Скопировать', copy: 'Hi' }]])
 })
