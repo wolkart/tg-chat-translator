@@ -1,4 +1,4 @@
-import { TelegramError, describeError } from '../../telegram.ts'
+import { describeError, isTelegramError } from '../../telegram.ts'
 import { BOT_SETTINGS_PATH, SETTINGS_PATH } from './connection.ts'
 
 /**
@@ -36,7 +36,7 @@ export const BOT_DISCONNECTED = `бот отключён от вашего ак�
 
 /** Отказ подключения: повтор с загрузкой вложения заново ничего не даст. */
 export function isFinalRefusal(error: unknown): boolean {
-  return error instanceof TelegramError && SEND_REFUSALS.some((refusal) => refusal.match.test(error.description))
+  return SEND_REFUSALS.some((refusal) => isTelegramError(error, refusal.match))
 }
 
 /** Причина «Не отправлено»: знакомый отказ — по таблице, незнакомый — словами Telegram. */

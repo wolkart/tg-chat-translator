@@ -5,20 +5,22 @@ import type { MediaKind } from './types.ts'
 /** Цвет кнопки (Bot API 9.4): зелёный — главное действие экрана, красный — «Отключить»/«Удалить». */
 export type ButtonStyle = 'success' | 'primary' | 'danger'
 
+type ButtonBase = { text: string; style?: ButtonStyle }
+
 /**
- * Кнопка под сообщением. Вид задаёт заполненное поле: data — нажатие приходит боту,
- * copy — текст ложится в буфер обмена, chooseChat — выбор личного чата и inline-запрос
- * «@бот <chooseChat>» в нём.
+ * Кнопка под сообщением. Вид задаёт заполненное поле, ровно одно: иначе `{ text }` без
+ * действия проходил бы проверку типов, а в Telegram уходил бы с пустым callback_data.
+ * - data — нажатие приходит боту;
+ * - copy — текст ложится в буфер обмена (copy_text: Telegram принимает до 256 символов);
+ * - chooseChat — выбор личного чата и inline-запрос «@бот <chooseChat>» в нём
+ *   (switch_inline_query_chosen_chat).
  */
-export type InlineButton = {
-  text: string
-  data?: string
-  /** copy_text: Telegram принимает до 256 символов */
-  copy?: string
-  /** switch_inline_query_chosen_chat: текст запроса, который подставится после имени бота */
-  chooseChat?: string
-  style?: ButtonStyle
-}
+export type InlineButton = ButtonBase &
+  (
+    | { data: string; copy?: never; chooseChat?: never }
+    | { copy: string; data?: never; chooseChat?: never }
+    | { chooseChat: string; data?: never; copy?: never }
+  )
 
 /** Вариант в ответе на inline-запрос: нажатие отправляет text обычным сообщением. */
 export type InlineArticle = { id: string; title: string; description: string; text: string }
@@ -79,6 +81,11 @@ export function describeError(error: unknown): string {
   return String(error)
 }
 
+/** Ошибка Bot API, чьё описание подходит под шаблон: коды отказов Telegram узнаём по тексту. */
+export function isTelegramError(error: unknown, pattern: RegExp): boolean {
+  return error instanceof TelegramError && pattern.test(error.description)
+}
+
 /**
  * Подмножество Bot API, которое нужно продукту. Шаги работают с этим интерфейсом,
  * а не с grammy напрямую: в тестах его заменяет подделка, записывающая вызовы.
@@ -111,7 +118,7 @@ export function toInlineKeyboard(keyboard: readonly (readonly InlineButton[])[])
           ...style,
         }
       }
-      return { text: button.text, callback_data: button.data ?? '', ...style }
+      return { text: button.text, callback_data: button.data, ...style }
     }),
   )
 }

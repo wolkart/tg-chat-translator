@@ -2,7 +2,7 @@ import { HISTORY_WINDOW } from '../store.ts'
 import type { LangProfile } from '../lang/profiles.ts'
 import type { HistoryLine } from '../types.ts'
 import { isPlantedCommand } from './check.ts'
-import { describeProviderError, type ProviderInfo } from './errors.ts'
+import { TranslationError, describeProviderError, type ProviderInfo } from './errors.ts'
 
 export type TranslateRequest = {
   /** На какой язык переводить */
@@ -14,20 +14,8 @@ export type TranslateRequest = {
 
 export type Translator = (request: TranslateRequest) => Promise<string>
 
-/** Перевод не удался — текст сообщения показывается владельцу как причина. */
-export class TranslationError extends Error {
-  /** Что сделать владельцу; нет — общий совет про ключ и баланс */
-  readonly hint: string | undefined
-  /** Сырой ответ провайдера — только для консоли, владельцу не показывается */
-  readonly detail: string | undefined
-
-  constructor(message: string, extra: { hint?: string; detail?: string } = {}) {
-    super(message)
-    this.name = 'TranslationError'
-    this.hint = extra.hint
-    this.detail = extra.detail
-  }
-}
+// Класс живёт в errors.ts, чтобы слой оповещений не тянул за собой весь переводчик.
+export { TranslationError } from './errors.ts'
 
 /** Кусок инструкции модели. Обращение, тон и глоссарий встанут сюда новыми фрагментами. */
 export type PromptFragment = (target: LangProfile) => string

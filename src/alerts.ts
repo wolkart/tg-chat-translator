@@ -1,6 +1,5 @@
 import { describeError, type TelegramApi } from './telegram.ts'
-import { DEFAULT_HINT } from './translate/errors.ts'
-import { TranslationError } from './translate/llm.ts'
+import { DEFAULT_HINT, TranslationError } from './translate/errors.ts'
 
 /** Короче — не секрет, а слово вроде «true»: заменять такое значит портить текст. */
 const SECRET_MIN_LENGTH = 9
