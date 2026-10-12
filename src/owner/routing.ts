@@ -1,20 +1,24 @@
 import type { Deps } from '../deps.ts'
 import type { Store } from '../store.ts'
-import type { InlineButton } from '../telegram.ts'
 import type { Conversation, OwnerPayload } from '../types.ts'
+import { newPeerDraft } from './manual-send.ts'
 
 export type Route =
   /** viaTopic — сообщение написано в теме этого разговора */
   | { kind: 'conversation'; conversation: Conversation; viaTopic: boolean }
   | { kind: 'choose'; options: Conversation[] }
-  | { kind: 'none' }
+  /** Активных разговоров нет — перевод для нового собеседника с кнопками ручной отправки. */
+  | { kind: 'new' }
   /** Тема, которой нет в базе: осталась с прошлой установки. */
   | { kind: 'stray-topic' }
 
 /**
  * Кому адресовано сообщение владельца в чате с ботом. Цепочка до первого совпадения:
- * тема → ответ на сообщение бота → единственный активный разговор → «Кому?».
- * Нужна потому, что в ленте «Все» Telegram отправляет сообщение вне темы.
+ * тема → ответ на сообщение бота → «Кому?», если есть хоть один активный разговор →
+ * перевод для нового собеседника. Нужна потому, что в ленте «Все» Telegram отправляет
+ * сообщение вне темы. Без «Ответить» адресата не угадываем даже при одном активном
+ * разговоре: молчаливая отправка не тому дороже лишнего нажатия, а написать первым новому
+ * человеку иначе было бы нельзя (решение автора 2026-10-12).
  * Исключение: сообщение в теме, которой база не знает, дальше по цепочке не идёт —
  * иначе после удаления базы текст из старой темы ушёл бы не тому человеку.
  */
@@ -34,41 +38,53 @@ export function routeOwnerMessage(
     if (conversation) return { kind: 'conversation', conversation, viaTopic: false }
   }
   const active = store.activeConversations(ownerId, now)
-  if (active.length === 1) return { kind: 'conversation', conversation: active[0]!, viaTopic: false }
-  if (active.length > 1) return { kind: 'choose', options: active }
-  return { kind: 'none' }
+  if (active.length > 0) return { kind: 'choose', options: active }
+  return { kind: 'new' }
 }
 
-export const NO_TARGET = 'Не понял, кому отправить — ответьте в теме собеседника.'
+export const NEW_PEER = 'Новому собеседнику'
 export const STRAY_TOPIC =
   'Эту тему бот не узнаёт — похоже, она осталась с прошлой установки. Сообщение никуда не ушло. ' +
   'Напишите в теме собеседника; если её ещё нет, она появится, когда он напишет снова. Эту тему можно удалить.'
 export const ALREADY_HANDLED = 'Уже обработано'
 
-/** callback_data ограничена 64 байтами: «to:<pending>:<conv>» влезает с запасом. */
-export function chooseKeyboard(pendingId: number, options: readonly Conversation[]): InlineButton[][] {
+/**
+ * callback_data ограничена 64 байтами: «to:<pending>:<conv>» влезает с запасом.
+ * newPeer — показать «Новому собеседнику»: только для текста, первым вложение бот не отправит.
+ */
+export function chooseKeyboard(
+  pendingId: number,
+  options: readonly Conversation[],
+  opts: { newPeer: boolean } = { newPeer: false },
+): { text: string; data: string }[][] {
   return [
     ...options.map((conversation) => [{ text: conversation.peerName, data: `to:${pendingId}:${conversation.id}` }]),
+    ...(opts.newPeer ? [[{ text: NEW_PEER, data: `new:${pendingId}` }]] : []),
     [{ text: 'Отмена', data: `cancel:${pendingId}` }],
   ]
 }
 
-export type Choice = { kind: 'to'; pendingId: number; conversationId: number } | { kind: 'cancel'; pendingId: number }
+export type Choice =
+  | { kind: 'to'; pendingId: number; conversationId: number }
+  | { kind: 'new'; pendingId: number }
+  | { kind: 'cancel'; pendingId: number }
 
 export function parseChoice(data: string): Choice | null {
   const to = /^to:(\d+):(\d+)$/.exec(data)
   if (to) return { kind: 'to', pendingId: Number(to[1]), conversationId: Number(to[2]) }
+  const fresh = /^new:(\d+)$/.exec(data)
+  if (fresh) return { kind: 'new', pendingId: Number(fresh[1]) }
   const cancel = /^cancel:(\d+)$/.exec(data)
   if (cancel) return { kind: 'cancel', pendingId: Number(cancel[1]) }
   return null
 }
 
-/** Несколько активных разговоров: сообщение откладывается, бот спрашивает «Кому?». */
+/** Есть активные разговоры: сообщение откладывается, бот спрашивает «Кому?». */
 export async function askWhom(deps: Deps, payload: OwnerPayload, options: readonly Conversation[]): Promise<void> {
   const pendingId = deps.store.createPending(deps.ownerId, payload, deps.now())
   const questionId = await deps.api.sendText(deps.ownerId, 'Кому?', {
     replyTo: payload.sourceMessageId,
-    keyboard: chooseKeyboard(pendingId, options),
+    keyboard: chooseKeyboard(pendingId, options, { newPeer: payload.media === null && payload.text !== '' }),
   })
   deps.store.setPendingQuestion(pendingId, questionId)
 }
@@ -97,6 +113,13 @@ export async function onChoice(
   if (choice.kind === 'cancel') {
     await deps.api.answerCallback(callback.id)
     if (taken.questionMessageId !== null) await deps.api.deleteMessage(deps.ownerId, taken.questionMessageId)
+    return
+  }
+
+  if (choice.kind === 'new') {
+    await deps.api.answerCallback(callback.id)
+    if (taken.questionMessageId !== null) await deps.api.editText(deps.ownerId, taken.questionMessageId, NEW_PEER)
+    await newPeerDraft(deps, taken.payload)
     return
   }
 

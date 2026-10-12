@@ -4,7 +4,8 @@ import { onBusinessMessage } from './channels/private-chat/incoming.ts'
 import { sendOwnerReply } from './channels/private-chat/outgoing.ts'
 import type { Deps } from './deps.ts'
 import { extractMedia, unsupportedLabel } from './media.ts'
-import { NO_TARGET, STRAY_TOPIC, askWhom, onChoice, routeOwnerMessage } from './owner/routing.ts'
+import { newPeerDraft } from './owner/manual-send.ts'
+import { STRAY_TOPIC, askWhom, onChoice, routeOwnerMessage } from './owner/routing.ts'
 import { TelegramError, describeError, toConnectionInfo } from './telegram.ts'
 import type { Connection } from './types.ts'
 
@@ -70,7 +71,9 @@ async function onOwnerMessage(deps: Deps, message: Message): Promise<void> {
   } else if (route.kind === 'choose') {
     await askWhom(deps, payload, route.options)
   } else {
-    await deps.api.sendText(deps.ownerId, NO_TARGET, { replyTo: message.message_id })
+    // Активных разговоров нет: владелец пишет первым или тому, кто давно молчит, — от его
+    // имени бот туда всё равно не напишет (правило суток), поэтому сразу перевод с кнопками.
+    await newPeerDraft(deps, payload)
   }
 }
 

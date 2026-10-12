@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import type { Update } from 'grammy/types'
 import { CANT_FORWARD, createApp, statusText } from '../src/app.ts'
 import { CONNECTED } from '../src/channels/private-chat/connection.ts'
-import { NO_TARGET, STRAY_TOPIC } from '../src/owner/routing.ts'
+import { FIRST_TEXT_ONLY } from '../src/owner/manual-send.ts'
+import { STRAY_TOPIC } from '../src/owner/routing.ts'
 import { CONNECTION_ID, OWNER_ID, PEER_ID, fixture } from './helpers.ts'
 import { TelegramError } from '../src/telegram.ts'
 import { setupDeps } from './setup.ts'
@@ -121,12 +122,26 @@ test('/start — статус показывает, что ключа нет и 
   assert.match(status, /Холостой прогон/)
 })
 
-test('вне тем без активных разговоров — подсказка, никому ничего не уходит', async () => {
+test('спека: вне тем без активных разговоров — перевод для нового собеседника с кнопками, никому ничего не уходит', async () => {
   const { app, tg, connectOwner } = started()
   connectOwner()
   await app.handleUpdate(fixture('owner-message-outside'))
   assert.equal(tg.sentAsOwner().length, 0)
-  assert.equal(tg.callsOf('sendText')[0]!.text, NO_TARGET)
+  const [reply] = tg.callsOf('sendText')
+  assert.equal(reply!.text, '<i>Перевод для нового собеседника (английский):</i>\n[en] Привет!')
+  assert.equal(reply!.opts.replyTo, 903)
+  assert.deepEqual(reply!.opts.keyboard!.map((row) => row[0]!.text), ['Отправить через бота', 'Скопировать'])
+})
+
+test('спека: фото вне тем без активных разговоров — «Первым бот отправляет только текст», модель не вызывается', async () => {
+  const { app, tg, translator, connectOwner } = started()
+  connectOwner()
+  const photo = fixture('owner-message-photo-in-topic')
+  delete photo.message!.message_thread_id
+  delete photo.message!.reply_to_message
+  await app.handleUpdate(photo)
+  assert.equal(translator.calls.length, 0)
+  assert.equal(tg.callsOf('sendText')[0]!.text, FIRST_TEXT_ONLY)
 })
 
 test('ответ «Ответить» в ленте «Все» уходит собеседнику без «✓»', async () => {
@@ -140,13 +155,15 @@ test('ответ «Ответить» в ленте «Все» уходит со
   assert.ok(!tg.callsOf('sendText').some((call) => call.text.startsWith('✓')))
 })
 
-test('ответ вне темы при одном активном разговоре — ему, с «✓ <имя>»', async () => {
+test('спека: вне темы при одном активном разговоре — «Кому?» с ним, «Новому собеседнику» и «Отмена»', async () => {
   const { app, tg, connectOwner } = started()
   connectOwner()
   await app.handleUpdate(fixture('business-message-peer-text'))
   await app.handleUpdate(fixture('owner-message-outside'))
-  assert.equal(tg.sentAsOwner().length, 1)
-  assert.equal(tg.callsOf('sendText').at(-1)!.text, '✓ Alex Peer')
+  assert.equal(tg.sentAsOwner().length, 0)
+  const question = tg.callsOf('sendText').at(-1)!
+  assert.equal(question.text, 'Кому?')
+  assert.deepEqual(question.opts.keyboard!.map((row) => row[0]!.text), ['Alex Peer', 'Новому собеседнику', 'Отмена'])
 })
 
 test('несколько активных разговоров: «Кому?» → кнопка → отправка и «Отправлено <имя>»', async () => {

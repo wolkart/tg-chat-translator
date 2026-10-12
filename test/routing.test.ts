@@ -31,10 +31,11 @@ test('ответ кнопкой «Ответить» на перевод — с�
   assert.equal(route.kind === 'conversation' && route.conversation.peerName, 'Anna')
 })
 
-test('вне тем при одном активном разговоре — ему', () => {
+test('спека: вне тем при одном активном разговоре — тоже «Кому?», бот адресата не угадывает', () => {
   const { store } = withConversations({ id: 1, name: 'Timon', lastPeerAt: T0 - DAY }, { id: 2, name: 'Old', lastPeerAt: T0 - DAY - 1 })
   const route = routeOwnerMessage({}, store, OWNER_ID, T0)
-  assert.equal(route.kind === 'conversation' && route.conversation.peerName, 'Timon')
+  assert.equal(route.kind, 'choose')
+  if (route.kind === 'choose') assert.deepEqual(route.options.map((c) => c.peerName), ['Timon'])
 })
 
 test('вне тем при нескольких активных — «Кому?»', () => {
@@ -44,9 +45,9 @@ test('вне тем при нескольких активных — «Кому?
   if (route.kind === 'choose') assert.deepEqual(route.options.map((c) => c.peerName), ['Timon', 'Anna'])
 })
 
-test('активных нет — некому', () => {
+test('спека: активных нет — перевод для нового собеседника', () => {
   const { store } = withConversations({ id: 1, name: 'Timon', lastPeerAt: T0 - DAY - 1 })
-  assert.deepEqual(routeOwnerMessage({}, store, OWNER_ID, T0), { kind: 'none' })
+  assert.deepEqual(routeOwnerMessage({}, store, OWNER_ID, T0), { kind: 'new' })
 })
 
 test('незнакомая тема — никому, даже при одном активном разговоре', () => {
@@ -63,7 +64,17 @@ test('кнопки «Кому?»: имена, «Отмена», данные в�
   for (const row of keyboard) for (const button of row) assert.ok(Buffer.byteLength(button.data) <= 64)
 })
 
+test('кнопки «Кому?» для текста: имена, «Новому собеседнику», «Отмена»', () => {
+  const conversation = { id: 5, peerName: 'Timon' } as Conversation
+  assert.deepEqual(chooseKeyboard(9, [conversation], { newPeer: true }), [
+    [{ text: 'Timon', data: 'to:9:5' }],
+    [{ text: 'Новому собеседнику', data: 'new:9' }],
+    [{ text: 'Отмена', data: 'cancel:9' }],
+  ])
+})
+
 test('parseChoice', () => {
+  assert.deepEqual(parseChoice('new:7'), { kind: 'new', pendingId: 7 })
   assert.deepEqual(parseChoice('to:1:2'), { kind: 'to', pendingId: 1, conversationId: 2 })
   assert.deepEqual(parseChoice('cancel:3'), { kind: 'cancel', pendingId: 3 })
   assert.equal(parseChoice('to:x:1'), null)
@@ -88,7 +99,10 @@ test('«Кому?» — вопрос с кнопками в ответ на со
   const { question, sent, tg } = await asked()
   assert.equal(question.text, 'Кому?')
   assert.equal(question.opts.replyTo, 903)
-  assert.equal(question.opts.keyboard?.length, 3)
+  assert.deepEqual(
+    question.opts.keyboard!.map((row) => row[0]!.text),
+    ['Timon', 'Anna', 'Новому собеседнику', 'Отмена'],
+  )
   assert.equal(sent.length, 0)
   assert.equal(tg.sentAsOwner().length, 0)
 })
@@ -140,4 +154,32 @@ test('ответ на «Отправлено <имя>» (бывший «Кому
   const route = routeOwnerMessage({ replyToMessageId: question.id }, deps.store, OWNER_ID, deps.now())
   assert.equal(route.kind, 'conversation')
   if (route.kind === 'conversation') assert.equal(route.conversation.peerName, 'Anna')
+})
+
+test('«Кому?» для вложения — без «Новому собеседнику»: первым бот отправляет только текст', async () => {
+  const ctx = withConversations({ id: 1, name: 'Timon', lastPeerAt: T0 })
+  await askWhom(ctx.deps, { text: 'Это тебе', media: { kind: 'photo', fileId: 'P' }, sourceMessageId: 904 }, ctx.conversations)
+  assert.deepEqual(ctx.tg.callsOf('sendText')[0]!.opts.keyboard!.map((row) => row[0]!.text), ['Timon', 'Отмена'])
+})
+
+test('спека: «Новому собеседнику» — вопрос меняется, перевод с кнопками, собеседникам ничего', async () => {
+  const { deps, question, sent, send, tg, translator } = await asked()
+  const fresh = question.opts.keyboard!.find((row) => row[0]!.text === 'Новому собеседнику')![0]!
+  await onChoice(deps, { id: 'CB1', data: fresh.data! }, send)
+  assert.equal(sent.length, 0)
+  assert.equal(tg.sentAsOwner().length, 0)
+  assert.deepEqual(tg.callsOf('editText')[0], { method: 'editText', chatId: OWNER_ID, messageId: question.id, text: 'Новому собеседнику' })
+  assert.deepEqual(translator.calls[0]!.history, [])
+  const draft = tg.callsOf('sendText').at(-1)!
+  assert.equal(draft.opts.replyTo, 903)
+  assert.equal(draft.text, '<i>Перевод для нового собеседника (английский):</i>\n[en] Привет!')
+  assert.equal(draft.opts.keyboard![0]![0]!.text, 'Отправить через бота')
+})
+
+test('спека: повторное нажатие «Новому собеседнику» — второго перевода нет', async () => {
+  const { deps, question, send, translator } = await asked()
+  const fresh = question.opts.keyboard!.find((row) => row[0]!.text === 'Новому собеседнику')![0]!
+  await onChoice(deps, { id: 'CB1', data: fresh.data! }, send)
+  await onChoice(deps, { id: 'CB2', data: fresh.data! }, send)
+  assert.equal(translator.calls.length, 1)
 })
