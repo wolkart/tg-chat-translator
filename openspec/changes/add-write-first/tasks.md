@@ -75,7 +75,7 @@
 
 ## 11. Ревью
 
-- [ ] 11.1 `/code-review high` и `/simplify` по всему изменению. `/security-review` — тоже: изменение затрагивает inline-ответы, чужой текст и ключи. Проверка: замечания закрыты или записаны с решением автора; `npm test` и `npm run typecheck` зелёные.
+- [x] 11.1 `/code-review high` и `/simplify` по всему изменению. `/security-review` — тоже: изменение затрагивает inline-ответы, чужой текст и ключи. Проверка: замечания закрыты или записаны с решением автора; `npm test` и `npm run typecheck` зелёные.
 
 ## Workflow follow-up
 
