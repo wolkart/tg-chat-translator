@@ -1,10 +1,21 @@
 import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { Connection, Conversation, HistoryLine, OwnerPayload, Role } from './types.ts'
+import type { Connection, Conversation, Draft, HistoryLine, OwnerPayload, Role } from './types.ts'
 
 export const HOUR = 60 * 60 * 1000
 export const DAY = 24 * HOUR
+
+/** Сколько живёт перевод для ручной отправки: кнопка под ним остаётся в теме надолго. */
+export const DRAFT_TTL = 7 * DAY
+
+/**
+ * Перевод для ручной отправки сравнивается с тем, что владелец отправил в личке. Telegram и
+ * буфер обмена могут срезать пробелы по краям и заменить перевод строки — сравниваем без них.
+ */
+export function normalizeText(text: string): string {
+  return text.replace(/\r\n/g, '\n').trim()
+}
 
 /** Сколько последних реплик разговора видит модель. Остальное удаляется: перевёл и забыл. */
 export const HISTORY_WINDOW = 20
@@ -84,6 +95,17 @@ const SCHEMA = `
     processed_at INTEGER NOT NULL
   ) STRICT;
 
+  -- Переводы для ручной отправки: «Отправить через бота» находит перевод по номеру, а текст,
+  -- отправленный владельцем в личке, узнаётся по совпадению. Живут 7 дней.
+  CREATE TABLE IF NOT EXISTS drafts (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id        INTEGER NOT NULL,
+    conversation_id INTEGER,
+    original        TEXT NOT NULL,
+    translation     TEXT NOT NULL,
+    created_at      INTEGER NOT NULL
+  ) STRICT;
+
   -- Запасной способ узнать эхо своей отправки, если Telegram не пришлёт sender_business_bot.
   CREATE TABLE IF NOT EXISTS sent_echo (
     owner_id     INTEGER NOT NULL,
@@ -105,6 +127,17 @@ function toConversation(row: Row): Conversation {
     peerName: String(row.peer_name),
     topicId: row.topic_id === null ? null : Number(row.topic_id),
     lastPeerAt: Number(row.last_peer_at),
+  }
+}
+
+function toDraft(row: Row): Draft {
+  return {
+    id: Number(row.id),
+    ownerId: Number(row.owner_id),
+    conversationId: row.conversation_id === null ? null : Number(row.conversation_id),
+    original: String(row.original),
+    translation: String(row.translation),
+    createdAt: Number(row.created_at),
   }
 }
 
@@ -192,9 +225,18 @@ export function openStore(path: string) {
     rememberSent: db.prepare('INSERT OR IGNORE INTO sent_echo (owner_id, peer_chat_id, message_id, created_at) VALUES (?, ?, ?, ?)'),
     wasSent: db.prepare('SELECT 1 FROM sent_echo WHERE owner_id = ? AND peer_chat_id = ? AND message_id = ?'),
 
+    insertDraft: db.prepare(
+      'INSERT INTO drafts (owner_id, conversation_id, original, translation, created_at) VALUES (?, ?, ?, ?, ?)',
+    ),
+    draftById: db.prepare('SELECT * FROM drafts WHERE id = ? AND owner_id = ? AND created_at >= ?'),
+    draftByTranslation: db.prepare(
+      'SELECT * FROM drafts WHERE owner_id = ? AND translation = ? AND created_at >= ? ORDER BY id DESC LIMIT 1',
+    ),
+
     cleanPending: db.prepare('DELETE FROM pending_choices WHERE created_at < ?'),
     cleanProcessed: db.prepare('DELETE FROM processed_updates WHERE processed_at < ?'),
     cleanSent: db.prepare('DELETE FROM sent_echo WHERE created_at < ?'),
+    cleanDrafts: db.prepare('DELETE FROM drafts WHERE created_at < ?'),
   }
 
   return {
@@ -253,19 +295,23 @@ export function openStore(path: string) {
       return row ? toConversation(row) : undefined
     },
 
+    /**
+     * lastPeerAt — когда собеседник писал последний раз. Разговор, который завёл владелец
+     * отправкой через бота, получает 0: пока собеседник не ответил, разговор не активен.
+     */
     createConversation(input: {
       ownerId: number
       connectionId: string
       peerChatId: number
       peerName: string
-      now: number
+      lastPeerAt: number
     }): Conversation {
       const result = q.insertConversation.run(
         input.ownerId,
         input.connectionId,
         input.peerChatId,
         input.peerName,
-        input.now,
+        input.lastPeerAt,
       )
       return toConversation(q.conversationById.get(Number(result.lastInsertRowid)) as Row)
     },
@@ -335,6 +381,38 @@ export function openStore(path: string) {
       }
     },
 
+    /** Перевод сохраняется без пробелов по краям: ровно этот текст и уйдёт собеседнику. */
+    createDraft(input: {
+      ownerId: number
+      conversationId: number | null
+      original: string
+      translation: string
+      now: number
+    }): Draft {
+      const translation = normalizeText(input.translation)
+      const result = q.insertDraft.run(input.ownerId, input.conversationId, input.original, translation, input.now)
+      return {
+        id: Number(result.lastInsertRowid),
+        ownerId: input.ownerId,
+        conversationId: input.conversationId,
+        original: input.original,
+        translation,
+        createdAt: input.now,
+      }
+    },
+
+    /** Живой перевод владельца по номеру. Чужой или старше 7 дней — undefined, даже до чистки. */
+    getDraft(ownerId: number, id: number, now: number): Draft | undefined {
+      const row = q.draftById.get(id, ownerId, now - DRAFT_TTL) as Row | undefined
+      return row ? toDraft(row) : undefined
+    },
+
+    /** Самый свежий живой перевод владельца с таким текстом. */
+    findDraftByTranslation(ownerId: number, text: string, now: number): Draft | undefined {
+      const row = q.draftByTranslation.get(ownerId, normalizeText(text), now - DRAFT_TTL) as Row | undefined
+      return row ? toDraft(row) : undefined
+    },
+
     isProcessed(updateId: number): boolean {
       return q.isProcessed.get(updateId) !== undefined
     },
@@ -353,12 +431,14 @@ export function openStore(path: string) {
 
     /**
      * Чистка служебных записей. Апдейты держим 48 часов: Telegram хранит их 24 часа,
-     * запас — на случай, если сервер лежал. Отложенные «Кому?» и эхо живут сутки.
+     * запас — на случай, если сервер лежал. Отложенные «Кому?» и эхо живут сутки,
+     * переводы для ручной отправки — 7 дней.
      */
     cleanup(now: number): void {
       q.cleanPending.run(now - DAY)
       q.cleanProcessed.run(now - 2 * DAY)
       q.cleanSent.run(now - DAY)
+      q.cleanDrafts.run(now - DRAFT_TTL)
     },
 
     close(): void {

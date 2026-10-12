@@ -1,12 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { DAY, HISTORY_WINDOW, LANGUAGE_DEFAULTS, SETTING, openStore } from '../src/store.ts'
+import { DAY, DRAFT_TTL, HISTORY_WINDOW, LANGUAGE_DEFAULTS, SETTING, openStore } from '../src/store.ts'
 
 const OWNER = 100001
 const T0 = 1_760_000_000_000
 
 function conversation(store: ReturnType<typeof openStore>, peerChatId = 200002, now = T0) {
-  return store.createConversation({ ownerId: OWNER, connectionId: 'BC1', peerChatId, peerName: 'Alex Peer', now })
+  return store.createConversation({ ownerId: OWNER, connectionId: 'BC1', peerChatId, peerName: 'Alex Peer', lastPeerAt: now })
 }
 
 test('первый запуск: на пустой базе записывается пара «русский ↔ английский»', () => {
@@ -114,4 +114,47 @@ test('ownerConnection: рабочее подключение важнее поз
   store.saveConnection({ ...base, id: 'LIVE', isEnabled: true }, T0)
   store.saveConnection({ ...base, id: 'OLD', isEnabled: false }, T0 + 1000)
   assert.equal(store.ownerConnection(OWNER)?.id, 'LIVE')
+})
+
+test('разговор, заведённый владельцем (lastPeerAt = 0), не активен, пока собеседник не напишет', () => {
+  const store = openStore(':memory:')
+  const conv = conversation(store, 200005, 0)
+  assert.deepEqual(store.activeConversations(OWNER, T0), [])
+  store.touchPeer(conv.id, T0)
+  assert.deepEqual(store.activeConversations(OWNER, T0).map((c) => c.id), [conv.id])
+})
+
+test('перевод для ручной отправки: сохраняется без пробелов по краям и находится по номеру', () => {
+  const store = openStore(':memory:')
+  const draft = store.createDraft({ ownerId: OWNER, conversationId: null, original: 'Привет!', translation: '  Hi!\n', now: T0 })
+  assert.equal(draft.translation, 'Hi!')
+  assert.deepEqual(store.getDraft(OWNER, draft.id, T0), { ...draft })
+  assert.equal(store.getDraft(100002, draft.id, T0), undefined)
+})
+
+test('перевод для ручной отправки находится по тексту — с другими переводами строк и пробелами', () => {
+  const store = openStore(':memory:')
+  store.createDraft({ ownerId: OWNER, conversationId: 7, original: 'Да\nнет', translation: 'Yes\nno', now: T0 })
+  assert.equal(store.findDraftByTranslation(OWNER, 'Yes\r\nno\n', T0)?.original, 'Да\nнет')
+  assert.equal(store.findDraftByTranslation(OWNER, 'Yes no', T0), undefined)
+  assert.equal(store.findDraftByTranslation(100002, 'Yes\nno', T0), undefined)
+})
+
+test('одинаковый перевод дважды — находится свежий', () => {
+  const store = openStore(':memory:')
+  store.createDraft({ ownerId: OWNER, conversationId: null, original: 'Ок', translation: 'OK', now: T0 })
+  const fresh = store.createDraft({ ownerId: OWNER, conversationId: 3, original: 'Хорошо', translation: 'OK', now: T0 + 1 })
+  assert.equal(store.findDraftByTranslation(OWNER, 'OK', T0 + 1)?.id, fresh.id)
+})
+
+test('перевод для ручной отправки живёт 7 дней: потом не находится и удаляется чисткой', () => {
+  const store = openStore(':memory:')
+  const draft = store.createDraft({ ownerId: OWNER, conversationId: null, original: 'Привет!', translation: 'Hi!', now: T0 })
+  const later = T0 + DRAFT_TTL + 60_000
+  assert.equal(DRAFT_TTL, 7 * DAY)
+  assert.ok(store.getDraft(OWNER, draft.id, T0 + DRAFT_TTL))
+  assert.equal(store.getDraft(OWNER, draft.id, later), undefined)
+  assert.equal(store.findDraftByTranslation(OWNER, 'Hi!', later), undefined)
+  store.cleanup(later)
+  assert.equal(store.getDraft(OWNER, draft.id, T0), undefined)
 })

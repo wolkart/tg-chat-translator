@@ -9,7 +9,7 @@ import { setupDeps } from './setup.ts'
 function withConversations(...peers: { id: number; name: string; lastPeerAt: number }[]) {
   const ctx = setupDeps()
   const conversations = peers.map((peer) =>
-    ctx.store.createConversation({ ownerId: OWNER_ID, connectionId: CONNECTION_ID, peerChatId: peer.id, peerName: peer.name, now: peer.lastPeerAt }),
+    ctx.store.createConversation({ ownerId: OWNER_ID, connectionId: CONNECTION_ID, peerChatId: peer.id, peerName: peer.name, lastPeerAt: peer.lastPeerAt }),
   )
   return { ...ctx, conversations }
 }

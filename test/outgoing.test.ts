@@ -16,7 +16,7 @@ function prepared(options: Parameters<typeof setupDeps>[0] = {}) {
     connectionId: CONNECTION_ID,
     peerChatId: PEER_ID,
     peerName: 'Alex Peer',
-    now: ctx.deps.now(),
+    lastPeerAt: ctx.deps.now(),
   })
   ctx.store.addReplica(conversation.id, { role: 'peer', original: 'How are you?', translation: 'Как дела?' }, ctx.deps.now())
   return { ...ctx, conversation }
@@ -143,7 +143,7 @@ test('длинный перевод уходит собеседнику неск
 
 test('владелец переподключил бота — ответ идёт через текущее подключение, а не через старое', async () => {
   const { deps, tg, store } = prepared()
-  const old = store.createConversation({ ownerId: OWNER_ID, connectionId: 'BC_OLD', peerChatId: 200009, peerName: 'Old Peer', now: deps.now() })
+  const old = store.createConversation({ ownerId: OWNER_ID, connectionId: 'BC_OLD', peerChatId: 200009, peerName: 'Old Peer', lastPeerAt: deps.now() })
   await sendOwnerReply(deps, old, reply, { outsideTopic: false })
   const [toPeer] = tg.sentAsOwner()
   assert.ok(toPeer && toPeer.method === 'sendText')

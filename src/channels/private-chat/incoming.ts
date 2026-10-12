@@ -77,7 +77,7 @@ export function incomingSteps(deps: Deps): Step<Replica>[] {
           connectionId: replica.connectionId,
           peerChatId: replica.peerChatId,
           peerName: replica.peerName,
-          now: deps.now(),
+          lastPeerAt: deps.now(),
         })
         return 'next'
       },

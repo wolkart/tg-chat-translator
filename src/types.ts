@@ -42,6 +42,19 @@ export type Conversation = {
   lastPeerAt: number
 }
 
+/** Перевод для ручной отправки: владелец сам отправит его кнопкой «Отправить через бота» или скопирует. */
+export type Draft = {
+  id: number
+  ownerId: number
+  /** Разговор, для которого готовился перевод; null — новый собеседник */
+  conversationId: number | null
+  /** Текст владельца */
+  original: string
+  /** Перевод — ровно то, что уйдёт собеседнику */
+  translation: string
+  createdAt: number
+}
+
 /** Строка истории для контекста модели — в оригинале. */
 export type HistoryLine = { role: Role; text: string }
 

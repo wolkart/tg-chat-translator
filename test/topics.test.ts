@@ -22,7 +22,7 @@ function setup() {
   const store = openStore(':memory:')
   const tg = fakeTelegram()
   const topics = createTopics({ api: tg.api, store, ownerChatId: OWNER_ID, now: () => T0, scrub: (t) => t.replace('SECRET-KEY-123', '***') })
-  const conversation = store.createConversation({ ownerId: OWNER_ID, connectionId: 'BC', peerChatId: PEER_ID, peerName: 'Timon', now: T0 })
+  const conversation = store.createConversation({ ownerId: OWNER_ID, connectionId: 'BC', peerChatId: PEER_ID, peerName: 'Timon', lastPeerAt: T0 })
   return { store, tg, topics, conversation }
 }
 
