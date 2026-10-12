@@ -213,6 +213,15 @@ test('чужой номер — без вариантов, но с кнопко�
   ])
 })
 
+test('«@бот» без номера — ни вариантов, ни кнопки «Перевод устарел»: ничего не устарело', async () => {
+  const { deps, tg } = setupDeps()
+  for (const query of ['', 'hello', '1e3', '99999999999999999999']) {
+    await answerInline(deps, { id: 'Q', query })
+  }
+  assert.equal(tg.callsOf('answerInline').length, 4)
+  assert.ok(tg.callsOf('answerInline').every((call) => call.articles.length === 0 && call.button === undefined))
+})
+
 test('устаревший inline-запрос (бот лежал) — тихо, без сообщения владельцу', async () => {
   const { deps, tg } = setupDeps()
   tg.failNext('answerInline', new TelegramError(400, 'Bad Request: query is too old and response timeout expired or query ID is invalid'))

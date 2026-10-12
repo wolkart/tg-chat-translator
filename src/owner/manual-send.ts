@@ -147,14 +147,21 @@ function titleOf(translation: string): string {
 
 /**
  * Ответ на inline-запрос «@бот <номер>» — его подставляет кнопка «Отправить через бота».
- * Вызывается только для владельца (фильтр в app.ts), перевод ищется среди его живых. Нет
- * такого — вариантов нет, а кнопка над ними ведёт в чат с ботом написать заново.
+ * Вызывается только для владельца (фильтр в app.ts), перевод ищется среди его живых. Номера
+ * нет — ответ пустой. Номер есть, а перевода нет — вариантов нет, а кнопка
+ * над ними ведёт в чат с ботом написать заново.
  */
 export async function answerInline(deps: Deps, query: { id: string; query: string }): Promise<void> {
   const text = query.query.trim()
-  const id = /^\d{1,15}$/.test(text) ? Number(text) : undefined
-  const draft = id === undefined ? undefined : deps.store.getDraft(deps.ownerId, id, deps.now())
+  // «@бот» без номера — владелец просто набирает имя бота: сообщать, что «перевод устарел»,
+  // не о чем, и кнопку показывать незачем.
+  const numeric = /^\d{1,15}$/.test(text)
+  const draft = numeric ? deps.store.getDraft(deps.ownerId, Number(text), deps.now()) : undefined
   try {
+    if (!numeric) {
+      await deps.api.answerInline(query.id, [])
+      return
+    }
     if (!draft) {
       await deps.api.answerInline(query.id, [], { button: { text: DRAFT_EXPIRED, startParameter: 'draft' } })
       return
