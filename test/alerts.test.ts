@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { THROTTLE_MS, alertModelFailure, createAlerts, createScrubber } from '../src/alerts.ts'
+import { TranslationError } from '../src/translate/llm.ts'
 import { TelegramError } from '../src/telegram.ts'
 import { fakeTelegram } from './fakes.ts'
 
@@ -126,4 +127,32 @@ test('сбой модели: разные причины в пределах 10 
   const sent = tg.callsOf('sendText')
   assert.equal(sent.length, 1)
   assert.match(sent[0]!.text, /^Модель не переводит: ошибка 503, request abc\./)
+})
+
+test('спека: неверный ключ — причина и подсказка из ошибки, сырой ответ только в консоли и без ключа', async () => {
+  const tg = fakeTelegram()
+  const printed: string[] = []
+  const alerts = createAlerts({
+    api: tg.api,
+    ownerChatId: 1,
+    scrub: createScrubber(['sk-or-v1-secret-key']),
+    print: (line) => printed.push(line),
+  })
+  await alertModelFailure(
+    alerts,
+    new TranslationError('OpenRouter: ключ не подходит', {
+      hint: 'Проверьте OPENROUTER_API_KEY в .env — ключ берут здесь: https://openrouter.ai/keys',
+      detail: '401: {"error":{"message":"User not found.","key":"sk-or-v1-secret-key"}}',
+    }),
+  )
+  const [sent] = tg.callsOf('sendText')
+  assert.equal(
+    sent!.text,
+    'Модель не переводит: OpenRouter: ключ не подходит. Пока это так, входящие идут в темы без перевода, ' +
+      'а ответы собеседникам не уходят. Проверьте OPENROUTER_API_KEY в .env — ключ берут здесь: https://openrouter.ai/keys',
+  )
+  assert.ok(!sent!.text.includes('User not found'))
+  const raw = printed.find((line) => line.includes('User not found'))
+  assert.ok(raw)
+  assert.ok(!raw.includes('sk-or-v1-secret-key'))
 })

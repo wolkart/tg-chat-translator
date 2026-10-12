@@ -2,6 +2,7 @@ import { HISTORY_WINDOW } from '../store.ts'
 import type { LangProfile } from '../lang/profiles.ts'
 import type { HistoryLine } from '../types.ts'
 import { isPlantedCommand } from './check.ts'
+import { describeProviderError, type ProviderInfo } from './errors.ts'
 
 export type TranslateRequest = {
   /** На какой язык переводить */
@@ -15,9 +16,16 @@ export type Translator = (request: TranslateRequest) => Promise<string>
 
 /** Перевод не удался — текст сообщения показывается владельцу как причина. */
 export class TranslationError extends Error {
-  constructor(message: string) {
+  /** Что сделать владельцу; нет — общий совет про ключ и баланс */
+  readonly hint: string | undefined
+  /** Сырой ответ провайдера — только для консоли, владельцу не показывается */
+  readonly detail: string | undefined
+
+  constructor(message: string, extra: { hint?: string; detail?: string } = {}) {
     super(message)
     this.name = 'TranslationError'
+    this.hint = extra.hint
+    this.detail = extra.detail
   }
 }
 
@@ -163,14 +171,15 @@ export function createTranslator(config: {
   baseUrl: string
   apiKey: string
   model: string
-  /** Имя провайдера для сообщений об ошибке */
-  label: string
+  /** Провайдер для сообщений об ошибке: имя, переменная с ключом, где ключ взять */
+  provider: ProviderInfo
   fetchImpl?: typeof fetch
   timeoutMs?: number
   fragments?: readonly PromptFragment[]
 }): Translator {
   const fetchImpl = config.fetchImpl ?? fetch
   const timeoutMs = config.timeoutMs ?? TRANSLATE_TIMEOUT_MS
+  const { label } = config.provider
 
   return async (request) => {
     const { system, examples, user } = buildPrompt(request, config.fragments)
@@ -192,10 +201,11 @@ export function createTranslator(config: {
 
       if (!response.ok) {
         const body = (await response.text()).slice(0, 300)
-        throw new TranslationError(`${config.label} ответил ошибкой ${response.status}: ${body}`)
+        const { reason, hint } = describeProviderError(config.provider, response.status)
+        throw new TranslationError(reason, { hint, detail: `${response.status}: ${body}` })
       }
 
-      let data: { choices?: { message?: { content?: unknown } }[]; error?: { message?: string } }
+      let data: { choices?: { message?: { content?: unknown } }[]; error?: { message?: string; code?: unknown } }
       try {
         data = (await response.json()) as typeof data
       } catch (error) {
@@ -204,10 +214,18 @@ export function createTranslator(config: {
         if (signal.aborted && signal.reason instanceof Error && signal.reason.name === 'TimeoutError') {
           throw signal.reason
         }
-        throw new TranslationError(`${config.label} вернул не JSON`)
+        throw new TranslationError(`${label} вернул не JSON`)
       }
 
-      if (data.error) throw new TranslationError(`${config.label}: ${data.error.message ?? 'неизвестная ошибка'}`)
+      if (data.error) {
+        // OpenRouter иногда отвечает 200 и кладёт ошибку в тело — с тем же кодом, что и в статусе.
+        const detail = JSON.stringify(data.error).slice(0, 300)
+        if (typeof data.error.code === 'number') {
+          const { reason, hint } = describeProviderError(config.provider, data.error.code)
+          throw new TranslationError(reason, { hint, detail })
+        }
+        throw new TranslationError(`${label} вернул ошибку`, { detail })
+      }
 
       const rawContent = data.choices?.[0]?.message?.content
       if (typeof rawContent !== 'string') throw new TranslationError('модель вернула пустой ответ')
@@ -220,7 +238,10 @@ export function createTranslator(config: {
       if (error instanceof Error && error.name === 'TimeoutError') {
         throw new TranslationError(`модель не ответила за ${Math.round(timeoutMs / 1000)} с`)
       }
-      throw new TranslationError(`${config.label} недоступен: ${error instanceof Error ? error.message : String(error)}`)
+      throw new TranslationError(`нет связи с ${label}`, {
+        hint: 'Проверьте, что у сервера есть интернет.',
+        detail: error instanceof Error ? error.message : String(error),
+      })
     }
   }
 }

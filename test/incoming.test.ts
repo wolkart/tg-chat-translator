@@ -109,6 +109,22 @@ test('перевод не удался — в теме оригинал с по�
   )
 })
 
+test('спека: неверный ключ — в теме «Перевод не удался: OpenRouter: ключ не подходит», общее сообщение с подсказкой', async () => {
+  const failing = fakeTranslator(() => {
+    throw new TranslationError('OpenRouter: ключ не подходит', {
+      hint: 'Проверьте OPENROUTER_API_KEY в .env — ключ берут здесь: https://openrouter.ai/keys',
+      detail: '401: {"error":{"message":"User not found.","code":401}}',
+    })
+  })
+  const { deps, tg, connectOwner } = setupDeps({ overrides: { translator: failing.translate } })
+  connectOwner()
+  await onBusinessMessage(deps, messageFixture('business-message-peer-text'))
+  const texts = tg.callsOf('sendText').map((call) => call.text)
+  assert.ok(texts.includes('See you at 7?\n<i>Перевод не удался: OpenRouter: ключ не подходит</i>'))
+  assert.ok(texts.some((text) => text.startsWith('Модель не переводит: OpenRouter: ключ не подходит.') && text.endsWith('https://openrouter.ai/keys')))
+  assert.ok(!texts.some((text) => text.includes('User not found')))
+})
+
 test('нет ключа модели — входящее в теме без перевода, с причиной', async () => {
   const { deps, tg, connectOwner } = setupDeps({
     overrides: { translator: null, translatorProblem: 'Нет ключа модели — переводить нечем.' },

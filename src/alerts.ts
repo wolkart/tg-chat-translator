@@ -1,4 +1,6 @@
 import { describeError, type TelegramApi } from './telegram.ts'
+import { DEFAULT_HINT } from './translate/errors.ts'
+import { TranslationError } from './translate/llm.ts'
 
 /** Короче — не секрет, а слово вроде «true»: заменять такое значит портить текст. */
 const SECRET_MIN_LENGTH = 9
@@ -137,13 +139,19 @@ export function createAlerts(deps: {
   }
 }
 
-/** Модель не перевела: общее сообщение вне тем. Пометка в теме — отдельно, у каждого сообщения. */
-export function alertModelFailure(alerts: Alerts, reason: string): Promise<void> {
+/**
+ * Модель не перевела: общее сообщение вне тем. Пометка в теме — отдельно, у каждого сообщения.
+ * Что сделать, говорит сама ошибка (ключ, баланс, подождать); сырой ответ провайдера — только
+ * в консоль, через замену секретов.
+ */
+export function alertModelFailure(alerts: Alerts, error: unknown): Promise<void> {
+  const hint = error instanceof TranslationError && error.hint ? error.hint : DEFAULT_HINT
+  if (error instanceof TranslationError && error.detail) alerts.log(`ответ провайдера: ${error.detail}`)
   // Ключ постоянный: текст ошибки провайдера меняется от запроса к запросу (id запроса, имя
   // провайдера, время сброса лимита), и ключ из него не дал бы троттлингу сработать.
   return alerts.general(
     'model',
-    `Модель не переводит: ${reason}. Пока это так, входящие идут в темы без перевода, ` +
-      'а ответы собеседникам не уходят. Проверьте ключ и баланс у провайдера.',
+    `Модель не переводит: ${describeError(error)}. Пока это так, входящие идут в темы без перевода, ` +
+      `а ответы собеседникам не уходят. ${hint}`,
   )
 }

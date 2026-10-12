@@ -60,7 +60,7 @@ const app = createApp({
   languages: pair.ok ? pair.pair : null,
   languagesProblem: pair.ok ? null : pair.problem,
   translator: model.ok
-    ? createTranslator({ baseUrl: model.baseUrl, apiKey: model.apiKey, model: model.model, label: model.provider.label })
+    ? createTranslator({ baseUrl: model.baseUrl, apiKey: model.apiKey, model: model.model, provider: model.provider })
     : null,
   translatorProblem: model.ok ? null : model.problem,
   translatorInfo: model.ok ? `${model.provider.label} · ${model.model}` : model.problem,

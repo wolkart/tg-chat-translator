@@ -42,7 +42,7 @@ const model = args.get('model') || resolved.model
 const runs = Number(args.get('runs') || 3)
 const only = args.get('only')?.split(',')
 const owner = getProfile('ru')!
-const translate = createTranslator({ baseUrl: resolved.baseUrl, apiKey: resolved.apiKey, model, label: resolved.provider.label })
+const translate = createTranslator({ baseUrl: resolved.baseUrl, apiKey: resolved.apiKey, model, provider: resolved.provider })
 
 type Run = { translation: string; review: Review; outcome: Outcome } | { error: string }
 

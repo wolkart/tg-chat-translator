@@ -100,7 +100,7 @@ export function incomingSteps(deps: Deps): Step<Replica>[] {
           replica.translationError = describeError(error)
           // Пометка в теме — у каждого сообщения, а общее сообщение говорит, что сломано и что
           // сделать; троттлинг по постоянному ключу не даёт лавины, пока провайдер лежит.
-          await alertModelFailure(deps.alerts, replica.translationError)
+          await alertModelFailure(deps.alerts, error)
         }
         if (replica.translation) {
           replica.review = deps.review({

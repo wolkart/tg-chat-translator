@@ -177,7 +177,8 @@ function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 }
 
-const config = { baseUrl: 'https://llm.test/v1', apiKey: 'sk-test', model: 'm', label: 'OpenRouter' }
+const openrouter = { label: 'OpenRouter', envKey: 'OPENROUTER_API_KEY', keysUrl: 'https://openrouter.ai/keys' }
+const config = { baseUrl: 'https://llm.test/v1', apiKey: 'sk-test', model: 'm', provider: openrouter }
 
 test('вызов модели: правильный запрос, кавычки срезаются', async () => {
   let sent: { url: string; body: Record<string, unknown>; auth: string | null } | undefined
@@ -225,10 +226,59 @@ test('вызов модели: таймаут — ошибка перевода'
   })
 })
 
-test('вызов модели: ошибка провайдера доходит с причиной', async () => {
-  const fetchImpl = (async () => new Response('rate limit exceeded', { status: 429 })) as typeof fetch
-  const translate = createTranslator({ ...config, fetchImpl })
-  await assert.rejects(translate({ target: ru, history: [], text: 'hi' }), /OpenRouter ответил ошибкой 429: rate limit exceeded/)
+/** Ошибка, которую бросил переводчик в ответ на этот ответ провайдера. */
+async function failureOf(response: () => Response | Promise<Response>): Promise<TranslationError> {
+  const fetchImpl = (async () => response()) as typeof fetch
+  try {
+    await createTranslator({ ...config, fetchImpl })({ target: ru, history: [], text: 'hi' })
+  } catch (error) {
+    assert.ok(error instanceof TranslationError)
+    return error
+  }
+  return assert.fail('перевод должен был не удаться')
+}
+
+test('спека: 401 — «ключ не подходит» и где взять ключ, сырого ответа в тексте нет', async () => {
+  const error = await failureOf(() => jsonResponse({ error: { message: 'User not found.', code: 401 } }, 401))
+  assert.equal(error.message, 'OpenRouter: ключ не подходит')
+  assert.equal(error.hint, 'Проверьте OPENROUTER_API_KEY в .env — ключ берут здесь: https://openrouter.ai/keys')
+  assert.ok(!error.message.includes('User not found'))
+  assert.match(error.detail ?? '', /User not found/)
+})
+
+test('спека: 402, 429, 503 — понятная причина и подсказка', async () => {
+  const cases: [number, string, RegExp][] = [
+    [402, 'OpenRouter: на балансе закончились деньги', /Пополните баланс у OpenRouter/],
+    [429, 'OpenRouter просит подождать — слишком много запросов', /проходит само/],
+    [503, 'OpenRouter временно не работает', /проходит само/],
+  ]
+  for (const [status, reason, hint] of cases) {
+    const error = await failureOf(() => new Response('overloaded, request abc', { status }))
+    assert.equal(error.message, reason)
+    assert.match(error.hint ?? '', hint)
+  }
+})
+
+test('спека: незнакомый код — «ответил ошибкой <код>» без тела ответа', async () => {
+  const error = await failureOf(() => new Response('I am a teapot '.repeat(50), { status: 418 }))
+  assert.equal(error.message, 'OpenRouter ответил ошибкой 418')
+  assert.ok(!error.message.includes('teapot'))
+})
+
+test('ответ 200 с ошибкой в теле разбирается по её коду', async () => {
+  const withCode = await failureOf(() => jsonResponse({ error: { message: 'Insufficient credits', code: 402 } }))
+  assert.equal(withCode.message, 'OpenRouter: на балансе закончились деньги')
+  const withoutCode = await failureOf(() => jsonResponse({ error: { message: 'Something odd' } }))
+  assert.equal(withoutCode.message, 'OpenRouter вернул ошибку')
+  assert.match(withoutCode.detail ?? '', /Something odd/)
+})
+
+test('нет сети — «нет связи с <провайдер>»', async () => {
+  const error = await failureOf(() => {
+    throw new TypeError('fetch failed')
+  })
+  assert.equal(error.message, 'нет связи с OpenRouter')
+  assert.equal(error.detail, 'fetch failed')
 })
 
 test('вызов модели: пустой ответ — ошибка', async () => {

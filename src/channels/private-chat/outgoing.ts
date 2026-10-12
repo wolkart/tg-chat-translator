@@ -42,7 +42,7 @@ export async function sendOwnerReply(
       translation = await deps.translator({ target: deps.languages.peer, history, text: payload.text })
     } catch (error) {
       const reason = describeError(error)
-      await alertModelFailure(deps.alerts, reason)
+      await alertModelFailure(deps.alerts, error)
       await deps.topics.postText(conversation, renderNotTranslated(reason))
       return false
     }
