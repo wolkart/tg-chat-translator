@@ -1,6 +1,6 @@
 import { Bot } from 'grammy'
 import { createAlerts, createScrubber } from './alerts.ts'
-import { createApp } from './app.ts'
+import { ALLOWED_UPDATES, createApp } from './app.ts'
 import { loadEnv } from './env.ts'
 import { createTopics } from './owner/topics.ts'
 import { createInlineCheck, loadSettings, startupChecks } from './startup.ts'
@@ -87,5 +87,5 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 }
 
 alerts.log(dry ? `@${me.username}: холостой прогон — собеседникам ничего не уходит` : `@${me.username} запущен`)
-await bot.start({ allowed_updates: ['business_connection', 'business_message', 'message', 'callback_query'] })
+await bot.start({ allowed_updates: [...ALLOWED_UPDATES] })
 store.close()

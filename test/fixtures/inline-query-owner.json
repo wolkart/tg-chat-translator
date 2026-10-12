@@ -1,0 +1,18 @@
+{
+  "update_id": 1401,
+  "inline_query": {
+    "id": "IQ1",
+    "from": {
+      "id": 100001,
+      "is_bot": false,
+      "first_name": "Owner",
+      "last_name": "Test",
+      "username": "owner_test",
+      "language_code": "ru",
+      "is_premium": true
+    },
+    "query": "1",
+    "offset": "",
+    "chat_type": "private"
+  }
+}

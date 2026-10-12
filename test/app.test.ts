@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Update } from 'grammy/types'
-import { CANT_FORWARD, createApp, statusText } from '../src/app.ts'
+import { ALLOWED_UPDATES, CANT_FORWARD, createApp, statusText } from '../src/app.ts'
 import { CONNECTED } from '../src/channels/private-chat/connection.ts'
 import { FIRST_TEXT_ONLY } from '../src/owner/manual-send.ts'
 import { STRAY_TOPIC } from '../src/owner/routing.ts'
@@ -274,4 +274,41 @@ test('поломка при подключении — сказано отпра
   }
   await app.handleUpdate(fixture('business-connection-owner'))
   assert.ok(tg.callsOf('sendText').some((call) => call.text.includes('/start')))
+})
+
+test('спека: посторонний набирает «@бот 12» — ни ответа, ни записей, ни модели', async () => {
+  const { app, tg, store, translator, deps } = started()
+  store.createDraft({ ownerId: OWNER_ID, conversationId: null, original: 'Привет', translation: 'Hi', now: deps.now() })
+  const update = fixture('inline-query-owner')
+  update.inline_query!.from = { ...update.inline_query!.from, id: 400004 }
+  await app.handleUpdate(update)
+  assert.equal(tg.calls.length, 0)
+  assert.equal(translator.calls.length, 0)
+  assert.equal(store.isProcessed(1401), false)
+})
+
+test('inline-запрос владельца — ответ с его переводом', async () => {
+  const { app, tg, store, deps } = started()
+  const draft = store.createDraft({ ownerId: OWNER_ID, conversationId: null, original: 'Привет', translation: 'Hi', now: deps.now() })
+  const update = fixture('inline-query-owner')
+  update.inline_query!.query = String(draft.id)
+  await app.handleUpdate(update)
+  const [answer] = tg.callsOf('answerInline')
+  assert.equal(answer!.queryId, 'IQ1')
+  assert.deepEqual(answer!.articles.map((article) => article.text), ['Hi'])
+})
+
+test('inline-ответ не ушёл — владелец знает, что нажать', async () => {
+  const { app, tg } = started()
+  tg.failNext('answerInline', new TelegramError(400, 'Bad Request: query is too old'))
+  await app.handleUpdate(fixture('inline-query-owner'))
+  assert.ok(
+    tg.callsOf('sendText').some((call) =>
+      call.text.startsWith('Не удалось ответить на кнопку «Отправить через бота»: Bad Request: query is too old. Попробуйте ещё раз или нажмите «Скопировать».'),
+    ),
+  )
+})
+
+test('бот просит у Telegram inline-запросы — иначе «Отправить через бота» молча не работает', () => {
+  assert.ok(ALLOWED_UPDATES.includes('inline_query'))
 })

@@ -4,10 +4,16 @@ import { onBusinessMessage } from './channels/private-chat/incoming.ts'
 import { sendOwnerReply } from './channels/private-chat/outgoing.ts'
 import type { Deps } from './deps.ts'
 import { extractMedia, unsupportedLabel } from './media.ts'
-import { newPeerDraft } from './owner/manual-send.ts'
+import { answerInline, newPeerDraft } from './owner/manual-send.ts'
 import { STRAY_TOPIC, askWhom, onChoice, routeOwnerMessage } from './owner/routing.ts'
 import { TelegramError, describeError, toConnectionInfo } from './telegram.ts'
 import type { Connection } from './types.ts'
+
+/**
+ * Какие апдейты просить у Telegram. Без inline_query кнопка «Отправить через бота» молча не
+ * сработала бы: Telegram не прислал бы боту запрос, и выбор чата закончился бы пустотой.
+ */
+export const ALLOWED_UPDATES = ['business_connection', 'business_message', 'message', 'callback_query', 'inline_query'] as const
 
 export const CANT_FORWARD = 'Такое бот переслать не умеет — отправьте это собеседнику в личке сами.'
 
@@ -124,12 +130,21 @@ export function createApp(deps: Deps): { handleUpdate(update: Update): Promise<v
       run: (u) => onCallback(deps, u.callback_query!),
       failure: OWN_MESSAGE_FAILURE,
     },
+    {
+      // Кнопка «Отправить через бота» подставляет в выбранный чат «@бот <номер перевода>».
+      name: 'inline-запрос',
+      match: (u) => u.inline_query !== undefined,
+      run: (u) => answerInline(deps, { id: u.inline_query!.id, query: u.inline_query!.query }),
+      failure: (reason) =>
+        `Не удалось ответить на кнопку «Отправить через бота»: ${reason}. Попробуйте ещё раз или нажмите «Скопировать».`,
+    },
   ]
 
   return {
     async handleUpdate(update) {
       // Посторонний не оставляет в базе ничего — даже номера апдейта: спека «ничего не сохраняет».
-      const from = update.message?.from ?? update.callback_query?.from
+      // Inline-запрос постороннего («@бот 12» в любом чате) остаётся без ответа: переводы — только владельцу.
+      const from = update.message?.from ?? update.callback_query?.from ?? update.inline_query?.from
       if (from && !isAllowedOwner(from.id, deps.ownerId)) return
       // После перезапуска Telegram может прислать уже обработанный апдейт — второй раз не отправляем.
       if (deps.store.isProcessed(update.update_id)) return
