@@ -168,7 +168,7 @@ test('спека: ответ модели не на языке собеседн�
   const [reply] = tg.callsOf('sendText')
   assert.equal(reply!.text, '<i>⚠️ Перевод выглядит подозрительно — отправлять его не предлагаю</i>\nХорошо, созвонимся вечером и всё обсудим.')
   assert.equal(reply!.opts.keyboard, undefined)
-  assert.equal(store.findDraftByTranslation(OWNER_ID, 'Хорошо, созвонимся вечером и всё обсудим.', deps.now()), undefined)
+  assert.equal(store.findDraftByTranslation(OWNER_ID, 'Хорошо, созвонимся вечером и всё обсудим.', deps.now(), { conversationId: 1, includeNewPeer: true }), undefined)
 })
 
 test('inline-запрос с номером живого перевода — один вариант, перевод обычным текстом', async () => {

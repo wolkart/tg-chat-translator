@@ -64,18 +64,6 @@ export function incomingSteps(deps: Deps): Step<Replica>[] {
       },
     },
     {
-      // Перевод, который владелец отправил сам — кнопкой «Отправить через бота» или вставив
-      // скопированное, — узнаём по тексту: в теме он покажется ответом с оригиналом, а не
-      // «Вы в личке» на чужом языке. Только текст: вложение через бота не уходит.
-      name: 'черновик',
-      run: (replica) => {
-        if (replica.direction === 'owner-direct' && replica.text && !replica.media) {
-          replica.draft = deps.store.findDraftByTranslation(replica.ownerId, replica.text, deps.now())
-        }
-        return 'next'
-      },
-    },
-    {
       // Разговор начинает собеседник, пишущий на чужом языке, — или владелец, отправивший
       // перевод через бота. Друзья, пишущие на языке владельца, не попадают ни в базу, ни к модели.
       name: 'разговор',
@@ -106,6 +94,26 @@ export function incomingSteps(deps: Deps): Step<Replica>[] {
           peerName: replica.peerName,
           lastPeerAt: deps.now(),
         })
+        return 'next'
+      },
+    },
+    {
+      // Перевод, который владелец отправил сам — кнопкой «Отправить через бота» или вставив
+      // скопированное, — узнаём по тексту: в теме он покажется ответом с оригиналом, а не
+      // «Вы в личке» на чужом языке. Только текст: вложение через бота не уходит.
+      // Ищем среди переводов этого же разговора, и только после шага «разговор»: короткий
+      // перевод («Thanks!»), сделанный для одного человека, иначе пометил бы набранное вручную
+      // сообщение другому и подсунул бы его модели как оригинал, которого владелец не писал.
+      // Перевод без разговора (для нового собеседника) считается своим лишь при отправке
+      // через бота — по тексту одному «OK» верить нельзя.
+      name: 'черновик',
+      run: (replica) => {
+        if (replica.direction === 'owner-direct' && replica.text && !replica.media && replica.conversation) {
+          replica.draft = deps.store.findDraftByTranslation(replica.ownerId, replica.text, deps.now(), {
+            conversationId: replica.conversation.id,
+            includeNewPeer: replica.viaBot === true,
+          })
+        }
         return 'next'
       },
     },

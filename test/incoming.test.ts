@@ -469,3 +469,41 @@ test('спека: в начатом разговоре вставленный п
   assert.equal(tg.callsOf('sendText').at(-1)!.text, '<i>Вы:</i> Отлично, а ты?\n→ Great, and you?')
   assert.deepEqual(store.recentReplicas(conversation.id).at(-1), { role: 'owner', text: 'Отлично, а ты?' })
 })
+
+test('перевод, сделанный для другого собеседника, не метит вручную набранное сообщение в этом разговоре', async () => {
+  const { deps, tg, store, connectOwner } = setupDeps()
+  connectOwner()
+  await onBusinessMessage(deps, messageFixture('business-message-peer-text'))
+  const timon = store.findConversationByPeer(OWNER_ID, PEER_ID)!
+  const anna = store.createConversation({ ownerId: OWNER_ID, connectionId: CONNECTION_ID, peerChatId: 200009, peerName: 'Anna', lastPeerAt: deps.now() })
+  store.createDraft({ ownerId: OWNER_ID, conversationId: timon.id, original: 'Хорошо, спасибо', translation: 'Thanks!', now: deps.now() })
+  await onBusinessMessage(deps, { ...messageFixture('business-message-owner-direct'), text: 'Thanks!', chat: { id: 200009, type: 'private', first_name: 'Anna' } })
+  assert.equal(tg.callsOf('sendText').at(-1)!.text, '<i>Вы в личке:</i> Thanks!')
+  assert.deepEqual(store.recentReplicas(anna.id).at(-1), { role: 'owner', text: 'Thanks!' })
+})
+
+test('перевод для нового собеседника узнаётся только при отправке через бота, не по тексту', async () => {
+  const { deps, tg, store, connectOwner } = setupDeps()
+  connectOwner()
+  await onBusinessMessage(deps, messageFixture('business-message-peer-text'))
+  store.createDraft({ ownerId: OWNER_ID, conversationId: null, original: 'Хорошо, спасибо', translation: 'Thanks!', now: deps.now() })
+  await onBusinessMessage(deps, { ...messageFixture('business-message-owner-direct'), text: 'Thanks!' })
+  assert.equal(tg.callsOf('sendText').at(-1)!.text, '<i>Вы в личке:</i> Thanks!')
+
+  const viaBot = { ...messageFixture('business-message-via-bot'), text: 'Thanks!', chat: messageFixture('business-message-peer-text').chat }
+  await onBusinessMessage(deps, viaBot)
+  assert.equal(tg.callsOf('sendText').at(-1)!.text, '<i>Вы:</i> Хорошо, спасибо\n→ Thanks!')
+})
+
+test('сообщение в чат без разговора и не через бота — перевод в базе даже не ищется', async () => {
+  const { deps, connectOwner, store } = setupDeps()
+  connectOwner()
+  let lookups = 0
+  const original = store.findDraftByTranslation.bind(store)
+  store.findDraftByTranslation = (...args) => {
+    lookups += 1
+    return original(...args)
+  }
+  await onBusinessMessage(deps, { ...messageFixture('business-message-owner-direct'), text: 'Привет, как дела?' })
+  assert.equal(lookups, 0)
+})

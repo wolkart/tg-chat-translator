@@ -105,6 +105,8 @@ const SCHEMA = `
     translation     TEXT NOT NULL,
     created_at      INTEGER NOT NULL
   ) STRICT;
+  -- Поиск по тексту идёт на каждое сообщение владельца в разговоре — без индекса это перебор таблицы.
+  CREATE INDEX IF NOT EXISTS drafts_by_text ON drafts (owner_id, translation);
 
   -- Запасной способ узнать эхо своей отправки, если Telegram не пришлёт sender_business_bot.
   CREATE TABLE IF NOT EXISTS sent_echo (
@@ -230,7 +232,7 @@ export function openStore(path: string) {
     ),
     draftById: db.prepare('SELECT * FROM drafts WHERE id = ? AND owner_id = ? AND created_at >= ?'),
     draftByTranslation: db.prepare(
-      'SELECT * FROM drafts WHERE owner_id = ? AND translation = ? AND created_at >= ? ORDER BY id DESC LIMIT 1',
+      'SELECT * FROM drafts WHERE owner_id = ? AND translation = ? AND created_at >= ? AND (conversation_id = ? OR (? = 1 AND conversation_id IS NULL)) ORDER BY id DESC LIMIT 1',
     ),
 
     cleanPending: db.prepare('DELETE FROM pending_choices WHERE created_at < ?'),
@@ -407,9 +409,23 @@ export function openStore(path: string) {
       return row ? toDraft(row) : undefined
     },
 
-    /** Самый свежий живой перевод владельца с таким текстом. */
-    findDraftByTranslation(ownerId: number, text: string, now: number): Draft | undefined {
-      const row = q.draftByTranslation.get(ownerId, normalizeText(text), now - DRAFT_TTL) as Row | undefined
+    /**
+     * Самый свежий живой перевод владельца с таким текстом — в указанном разговоре; перевод
+     * без разговора (для нового собеседника) — только при includeNewPeer.
+     */
+    findDraftByTranslation(
+      ownerId: number,
+      text: string,
+      now: number,
+      scope: { conversationId: number; includeNewPeer: boolean },
+    ): Draft | undefined {
+      const row = q.draftByTranslation.get(
+        ownerId,
+        normalizeText(text),
+        now - DRAFT_TTL,
+        scope.conversationId,
+        scope.includeNewPeer ? 1 : 0,
+      ) as Row | undefined
       return row ? toDraft(row) : undefined
     },
 

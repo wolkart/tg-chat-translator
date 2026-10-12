@@ -132,19 +132,21 @@ test('перевод для ручной отправки: сохраняетс�
   assert.equal(store.getDraft(100002, draft.id, T0), undefined)
 })
 
+const IN_7 = { conversationId: 7, includeNewPeer: false }
+
 test('перевод для ручной отправки находится по тексту — с другими переводами строк и пробелами', () => {
   const store = openStore(':memory:')
   store.createDraft({ ownerId: OWNER, conversationId: 7, original: 'Да\nнет', translation: 'Yes\nno', now: T0 })
-  assert.equal(store.findDraftByTranslation(OWNER, 'Yes\r\nno\n', T0)?.original, 'Да\nнет')
-  assert.equal(store.findDraftByTranslation(OWNER, 'Yes no', T0), undefined)
-  assert.equal(store.findDraftByTranslation(100002, 'Yes\nno', T0), undefined)
+  assert.equal(store.findDraftByTranslation(OWNER, 'Yes\r\nno\n', T0, IN_7)?.original, 'Да\nнет')
+  assert.equal(store.findDraftByTranslation(OWNER, 'Yes no', T0, IN_7), undefined)
+  assert.equal(store.findDraftByTranslation(100002, 'Yes\nno', T0, IN_7), undefined)
 })
 
 test('одинаковый перевод дважды — находится свежий', () => {
   const store = openStore(':memory:')
   store.createDraft({ ownerId: OWNER, conversationId: null, original: 'Ок', translation: 'OK', now: T0 })
   const fresh = store.createDraft({ ownerId: OWNER, conversationId: 3, original: 'Хорошо', translation: 'OK', now: T0 + 1 })
-  assert.equal(store.findDraftByTranslation(OWNER, 'OK', T0 + 1)?.id, fresh.id)
+  assert.equal(store.findDraftByTranslation(OWNER, 'OK', T0 + 1, { conversationId: 3, includeNewPeer: true })?.id, fresh.id)
 })
 
 test('перевод для ручной отправки живёт 7 дней: потом не находится и удаляется чисткой', () => {
@@ -154,7 +156,17 @@ test('перевод для ручной отправки живёт 7 дней:
   assert.equal(DRAFT_TTL, 7 * DAY)
   assert.ok(store.getDraft(OWNER, draft.id, T0 + DRAFT_TTL))
   assert.equal(store.getDraft(OWNER, draft.id, later), undefined)
-  assert.equal(store.findDraftByTranslation(OWNER, 'Hi!', later), undefined)
+  assert.equal(store.findDraftByTranslation(OWNER, 'Hi!', later, { conversationId: 1, includeNewPeer: true }), undefined)
   store.cleanup(later)
   assert.equal(store.getDraft(OWNER, draft.id, T0), undefined)
+})
+
+test('поиск перевода по тексту — только в своём разговоре; перевод без разговора — по явному разрешению', () => {
+  const store = openStore(':memory:')
+  const mine = store.createDraft({ ownerId: OWNER, conversationId: 7, original: 'Да', translation: 'Yes', now: T0 })
+  const orphan = store.createDraft({ ownerId: OWNER, conversationId: null, original: 'Нет', translation: 'No', now: T0 })
+  assert.equal(store.findDraftByTranslation(OWNER, 'Yes', T0, { conversationId: 7, includeNewPeer: false })?.id, mine.id)
+  assert.equal(store.findDraftByTranslation(OWNER, 'Yes', T0, { conversationId: 8, includeNewPeer: true }), undefined)
+  assert.equal(store.findDraftByTranslation(OWNER, 'No', T0, { conversationId: 7, includeNewPeer: false }), undefined)
+  assert.equal(store.findDraftByTranslation(OWNER, 'No', T0, { conversationId: 7, includeNewPeer: true })?.id, orphan.id)
 })
