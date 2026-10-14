@@ -14,7 +14,7 @@ export const TOPICS_OFF =
 
 export const INLINE_OFF =
   'В BotFather выключен Inline Mode — без него не работает кнопка «Отправить через бота». ' +
-  'Откройте @BotFather → /mybots → этот бот → Bot Settings → Inline Mode → Turn on.'
+  'Откройте @BotFather → Open → этот бот → Bot Settings → Inline Mode и включите переключатель.'
 
 /** Как часто переспрашивать Telegram, пока Inline Mode выключен: владелец мог включить его в BotFather. */
 export const INLINE_RECHECK_MS = 60 * 1000

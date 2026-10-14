@@ -1,5 +1,5 @@
 import { describeError, isTelegramError } from '../../telegram.ts'
-import { BOT_SETTINGS_PATH, SETTINGS_PATH } from './connection.ts'
+import { SETTINGS_PATH } from './connection.ts'
 
 /**
  * Отказ Telegram в отправке от имени владельца, который мы узнаём по коду в описании ошибки.
@@ -23,13 +23,13 @@ export const SEND_REFUSALS: readonly SendRefusal[] = [
     // Чата нет среди чатов бота: «Только выбранные чаты» без этого человека.
     match: /BUSINESS_PEER_INVALID/,
     text: (name) =>
-      `бот не видит чат с ${name} — его нет среди чатов, доступных боту. Добавьте его: ${BOT_SETTINGS_PATH}. ` +
+      `бот не видит чат с ${name} — его нет среди чатов, доступных боту. Добавьте его в «Выбранные чаты»: ${SETTINGS_PATH}. ` +
       'Пока отправьте перевод сами — кнопками ниже.',
   },
 ]
 
 /** Права «Ответы на сообщения» нет — бот и не пробует отправлять. */
-export const NO_REPLY_RIGHT = `боту не разрешено отвечать от вашего имени. Включите «Ответы на сообщения»: ${BOT_SETTINGS_PATH}.`
+export const NO_REPLY_RIGHT = `боту не разрешено отвечать от вашего имени. Включите «Ответы на сообщения» (раздел «Сообщения»): ${SETTINGS_PATH}.`
 
 /** Владелец отключил бота от аккаунта — отправлять не через что. */
 export const BOT_DISCONNECTED = `бот отключён от вашего аккаунта. Подключите его снова: ${SETTINGS_PATH}.`

@@ -1,5 +1,5 @@
 import type { CallbackQuery, Message, Update } from 'grammy/types'
-import { BOT_SETTINGS_PATH, SETTINGS_PATH, isAllowedOwner, onBusinessConnection } from './channels/private-chat/connection.ts'
+import { SETTINGS_PATH, isAllowedOwner, onBusinessConnection } from './channels/private-chat/connection.ts'
 import { onBusinessMessage } from './channels/private-chat/incoming.ts'
 import { sendOwnerReply } from './channels/private-chat/outgoing.ts'
 import type { Deps } from './deps.ts'
@@ -39,7 +39,7 @@ export function statusText(deps: Deps): string {
     'Статус переводчика',
     `• Подключение к аккаунту: ${connectionLine(connection)}`,
     `• Право отвечать от вашего имени: ${
-      !connected ? '—' : connection.canReply ? 'есть' : `нет — включите «Ответы на сообщения»: ${BOT_SETTINGS_PATH}`
+      !connected ? '—' : connection.canReply ? 'есть' : `нет — включите «Ответы на сообщения» (раздел «Сообщения»): ${SETTINGS_PATH}`
     }`,
     `• Языки: ${languages}`,
     `• Модель: ${deps.translatorInfo}`,
