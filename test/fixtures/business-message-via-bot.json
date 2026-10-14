@@ -15,6 +15,7 @@
     "chat": {
       "id": 200005,
       "first_name": "Maria",
+      "username": "maria_peer",
       "type": "private"
     },
     "date": 1760000150,
