@@ -31,6 +31,7 @@ test('ключ берётся из .env', () => {
   if (!resolved.ok) return
   assert.equal(resolved.provider.id, 'openrouter')
   assert.equal(resolved.apiKey, 'sk-or-1')
+  assert.equal(resolved.keySource, 'env')
   assert.equal(resolved.model, PROVIDERS[0]!.models[0])
 })
 
@@ -46,13 +47,41 @@ test('чужая модель из настроек заменяется пер�
   if (resolved.ok) assert.equal(resolved.model, 'deepseek-chat')
 })
 
-test('без ключа — «ключа нет» и где его взять', () => {
-  const resolved = resolveModel({}, { providerKeys: {} })
+test('спека: ключа нет ни в .env, ни в панели — куда вставить и где взять', () => {
+  const resolved = resolveModel({}, { providerKeys: {} }, {})
   assert.equal(resolved.ok, false)
   if (resolved.ok) return
-  assert.match(resolved.problem, /Нет ключа модели/)
-  assert.match(resolved.problem, /OPENROUTER_API_KEY/)
-  assert.match(resolved.problem, /openrouter\.ai\/keys/)
+  assert.equal(
+    resolved.problem,
+    'Нет ключа модели — переводить нечем. Вставьте ключ: /start → 🔑 Ключ. Ключ берут здесь: https://openrouter.ai/keys',
+  )
+})
+
+test('спека: ключ вставлен в панели — переводы идут через OpenRouter с этим ключом', () => {
+  const resolved = resolveModel({ provider: 'openrouter' }, { providerKeys: {} }, { openrouter: 'sk-or-panel' })
+  assert.equal(resolved.ok, true)
+  if (!resolved.ok) return
+  assert.equal(resolved.provider.id, 'openrouter')
+  assert.equal(resolved.apiKey, 'sk-or-panel')
+  assert.equal(resolved.keySource, 'panel')
+})
+
+test('спека: ключ и в .env, и в панели — работает ключ из .env', () => {
+  const resolved = resolveModel(
+    { provider: 'openrouter' },
+    { providerKeys: { OPENROUTER_API_KEY: 'sk-or-env' } },
+    { openrouter: 'sk-or-panel' },
+  )
+  assert.equal(resolved.ok, true)
+  if (!resolved.ok) return
+  assert.equal(resolved.apiKey, 'sk-or-env')
+  assert.equal(resolved.keySource, 'env')
+})
+
+test('у выбранного провайдера ключа нет, а в панели есть у другого — работает тот, у кого есть', () => {
+  const resolved = resolveModel({ provider: 'deepseek' }, { providerKeys: {} }, { openrouter: 'sk-or-panel' })
+  assert.equal(resolved.ok, true)
+  if (resolved.ok) assert.equal(resolved.provider.id, 'openrouter')
 })
 
 test('локальная модель берёт адрес из LOCAL_BASE_URL', () => {

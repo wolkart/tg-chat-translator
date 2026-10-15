@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { DAY, DRAFT_TTL, HISTORY_WINDOW, LANGUAGE_DEFAULTS, SETTING, openStore } from '../src/store.ts'
+import { DAY, DRAFT_TTL, HISTORY_WINDOW, LANGUAGE_DEFAULTS, SETTING, keySetting, openStore } from '../src/store.ts'
 
 const OWNER = 100001
 const T0 = 1_760_000_000_000
@@ -169,4 +169,14 @@ test('поиск перевода по тексту — только в своё
   assert.equal(store.findDraftByTranslation(OWNER, 'Yes', T0, { conversationId: 8, includeNewPeer: true }), undefined)
   assert.equal(store.findDraftByTranslation(OWNER, 'No', T0, { conversationId: 7, includeNewPeer: false }), undefined)
   assert.equal(store.findDraftByTranslation(OWNER, 'No', T0, { conversationId: 7, includeNewPeer: true })?.id, orphan.id)
+})
+
+test('ключи из панели — по id провайдера, только свои и только с префиксом key:', () => {
+  const store = openStore(':memory:')
+  store.setSetting(OWNER, keySetting('openrouter'), 'sk-or-a')
+  store.setSetting(OWNER, keySetting('deep_seek'), 'sk-b')
+  store.setSetting(OWNER, 'keyboard', 'не ключ')
+  store.setSetting(OWNER + 1, keySetting('openrouter'), 'sk-or-чужой')
+  assert.deepEqual(store.panelKeys(OWNER), { openrouter: 'sk-or-a', deep_seek: 'sk-b' })
+  store.close()
 })

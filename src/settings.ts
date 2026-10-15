@@ -46,7 +46,11 @@ export function createConfig(deps: {
       get(SETTING.ownerLang) ?? LANGUAGE_DEFAULTS[SETTING.ownerLang]!,
       get(SETTING.peerLang) ?? LANGUAGE_DEFAULTS[SETTING.peerLang]!,
     )
-    const model = resolveModel({ provider: get(SETTING.provider), model: get(SETTING.model) }, deps.env)
+    const model = resolveModel(
+      { provider: get(SETTING.provider), model: get(SETTING.model) },
+      deps.env,
+      deps.store.panelKeys(ownerId),
+    )
     return {
       languages: pair.ok ? pair.pair : null,
       languagesProblem: pair.ok ? null : pair.problem,

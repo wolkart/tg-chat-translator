@@ -34,6 +34,13 @@ export const LANGUAGE_DEFAULTS: Record<string, string> = {
   [SETTING.peerLang]: 'en',
 }
 
+/** Ключ провайдера, вставленный в панели: `key:openrouter`. Ключ из .env сюда не пишется. */
+export function keySetting(providerId: string): string {
+  return `${KEY_PREFIX}${providerId}`
+}
+
+const KEY_PREFIX = 'key:'
+
 /** «Как в разговоре»: деловое обращение владелец включает сам, в панели. */
 export const ADDRESS_DEFAULTS: Record<string, string> = {
   [SETTING.address]: 'as-is',
@@ -174,6 +181,8 @@ export function openStore(path: string) {
         'ON CONFLICT (owner_id, key) DO UPDATE SET value = excluded.value',
     ),
     insertSettingIfAbsent: db.prepare('INSERT OR IGNORE INTO settings (owner_id, key, value) VALUES (?, ?, ?)'),
+    // substr, а не LIKE: в LIKE «_» — любой символ, а id провайдера могут его содержать.
+    panelKeys: db.prepare('SELECT key, value FROM settings WHERE owner_id = ? AND substr(key, 1, ?) = ?'),
 
     getConnection: db.prepare('SELECT * FROM connections WHERE id = ?'),
     saveConnection: db.prepare(
@@ -255,6 +264,15 @@ export function openStore(path: string) {
 
     setSetting(ownerId: number, key: string, value: string): void {
       q.setSetting.run(ownerId, key, value)
+    },
+
+    /** Ключи, вставленные в панели, по id провайдера: { openrouter: 'sk-or-v1-…' }. */
+    panelKeys(ownerId: number): Record<string, string> {
+      const keys: Record<string, string> = {}
+      for (const row of q.panelKeys.all(ownerId, KEY_PREFIX.length, KEY_PREFIX) as Row[]) {
+        keys[String(row.key).slice(KEY_PREFIX.length)] = String(row.value)
+      }
+      return keys
     },
 
     /** Дефолты первого запуска: пишутся, только если значения ещё нет. */

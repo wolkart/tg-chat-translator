@@ -72,31 +72,53 @@ export function getProvider(id: string | undefined): Provider {
   return PROVIDERS.find((provider) => provider.id === id) ?? PROVIDERS[0]!
 }
 
+/** Откуда ключ: от этого зависят подсказки — «вставьте заново в панели» или «проверьте .env». */
+export type KeySource = 'env' | 'panel'
+
+export type ProviderKey = { value: string; source: KeySource }
+
+/**
+ * Ключ провайдера. Из .env главнее: так тот, кто ставит руками, точно знает, какой ключ
+ * работает. Из панели — если в .env его нет.
+ */
+export function providerKey(
+  provider: Provider,
+  envKeys: Record<string, string>,
+  panelKeys: Record<string, string>,
+): ProviderKey | undefined {
+  const fromEnv = envKeys[provider.envKey]
+  if (fromEnv) return { value: fromEnv, source: 'env' }
+  const fromPanel = panelKeys[provider.id]
+  return fromPanel ? { value: fromPanel, source: 'panel' } : undefined
+}
+
 export type ResolvedModel =
-  | { ok: true; provider: Provider; model: string; apiKey: string; baseUrl: string }
+  | { ok: true; provider: Provider; model: string; apiKey: string; keySource: KeySource; baseUrl: string }
   | { ok: false; problem: string }
 
 /**
- * Какой провайдер и модель использовать. Ключ — только из .env: если у выбранного
- * провайдера ключа нет, а у другого есть, работает тот, чей ключ задан.
+ * Какой провайдер и модель использовать. Ключ — из .env или из панели. Если у выбранного
+ * провайдера ключа нет, а у другого есть, работает тот, чей ключ задан: установка, где
+ * ключ вписан только в .env, работает без панели.
  */
 export function resolveModel(
   settings: { provider?: string; model?: string },
   env: { providerKeys: Record<string, string>; localBaseUrl?: string },
+  panelKeys: Record<string, string> = {},
 ): ResolvedModel {
   const chosen = getProvider(settings.provider)
-  const provider = env.providerKeys[chosen.envKey]
-    ? chosen
-    : PROVIDERS.find((candidate) => env.providerKeys[candidate.envKey])
+  const keyOf = (provider: Provider) => providerKey(provider, env.providerKeys, panelKeys)
+  const provider = keyOf(chosen) ? chosen : PROVIDERS.find((candidate) => keyOf(candidate))
+  const key = provider && keyOf(provider)
 
-  if (!provider) {
+  if (!provider || !key) {
     return {
       ok: false,
-      problem: `Нет ключа модели — переводить нечем. Впишите ${chosen.envKey} в .env, ключ берут здесь: ${chosen.keysUrl}`,
+      problem: `Нет ключа модели — переводить нечем. Вставьте ключ: /start → 🔑 Ключ. Ключ берут здесь: ${chosen.keysUrl}`,
     }
   }
 
   const model = settings.model && provider.models.includes(settings.model) ? settings.model : provider.models[0]!
   const baseUrl = provider.id === 'local' && env.localBaseUrl ? env.localBaseUrl : provider.baseUrl
-  return { ok: true, provider, model, apiKey: env.providerKeys[provider.envKey]!, baseUrl }
+  return { ok: true, provider, model, apiKey: key.value, keySource: key.source, baseUrl }
 }

@@ -4,26 +4,28 @@ import { DEFAULT_HINT, TranslationError } from './translate/errors.ts'
 /** Короче — не секрет, а слово вроде «true»: заменять такое значит портить текст. */
 const SECRET_MIN_LENGTH = 9
 
+/** Замена секретов; add — новый секрет, например ключ, вставленный в панели. */
+export type Scrubber = ((text: string) => string) & { add(value: string): void }
+
 /**
  * Замена секретов на ***. Ошибки внешних сервисов иногда цитируют запрос целиком —
  * вместе с ключом или токеном в адресе. Владелец и консоль их видеть не должны.
  * Укрывает как исходные значения, так и URL-кодированные варианты (`:` → `%3A`).
  * Объединяет перекрывающиеся или соседние диапазоны в один `***`.
+ * Список пополняется на ходу: ключ из панели появляется уже после старта.
  */
-export function createScrubber(secrets: readonly string[]): (text: string) => string {
-  // Собираем все варианты: исходные и URL-кодированные.
+export function createScrubber(secrets: readonly string[]): Scrubber {
   const variants = new Set<string>()
-  for (const value of secrets) {
-    if (value.length >= SECRET_MIN_LENGTH) {
-      variants.add(value)
-      const encoded = encodeURIComponent(value)
-      if (encoded !== value) {
-        variants.add(encoded)
-      }
-    }
+  // Исходное значение и URL-кодированное.
+  function add(value: string): void {
+    if (value.length < SECRET_MIN_LENGTH) return
+    variants.add(value)
+    const encoded = encodeURIComponent(value)
+    if (encoded !== value) variants.add(encoded)
   }
+  for (const value of secrets) add(value)
 
-  return (text) => {
+  const scrub = (text: string) => {
     if (variants.size === 0) return text
 
     // Находим все вхождения всех вариантов и собираем диапазоны [start, end).
@@ -63,6 +65,7 @@ export function createScrubber(secrets: readonly string[]): (text: string) => st
     result += text.slice(lastEnd)
     return result
   }
+  return Object.assign(scrub, { add })
 }
 
 /** Одинаковое общее сообщение — не чаще раза в 10 минут: лёгший провайдер не должен засыпать чат. */

@@ -156,3 +156,21 @@ test('спека: неверный ключ — причина и подсказ
   assert.ok(raw)
   assert.ok(!raw.includes('sk-or-v1-secret-key'))
 })
+
+test('спека: ключ из панели в тексте ошибки — *** и владельцу, и в консоли', async () => {
+  const tg = fakeTelegram()
+  const printed: string[] = []
+  const scrub = createScrubber(['123456:bot-token-value'])
+  const alerts = createAlerts({ api: tg.api, ownerChatId: 1, scrub, print: (line) => printed.push(line) })
+  const panelKey = 'sk-or-v1-вставлен-в-панели-после-старта'
+  scrub.add(panelKey)
+  await alerts.general('model', `OpenRouter: ${panelKey} не подходит`)
+  assert.equal(tg.callsOf('sendText')[0]!.text, 'OpenRouter: *** не подходит')
+  assert.ok(printed.every((line) => !line.includes(panelKey)))
+})
+
+test('замена секретов: короткое значение, добавленное на ходу, не заменяется', () => {
+  const scrub = createScrubber([])
+  scrub.add('short')
+  assert.equal(scrub('short text'), 'short text')
+})

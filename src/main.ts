@@ -30,6 +30,7 @@ const config = createConfig({ store, env })
 const bot = new Bot(env.botToken)
 const api = createTelegramApi(bot.api, env.botToken)
 const scrub = createScrubber(env.secrets)
+for (const key of Object.values(store.panelKeys(env.ownerId))) scrub.add(key)
 const alerts = createAlerts({ api, ownerChatId: env.ownerId, scrub, now })
 
 let me
