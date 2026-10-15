@@ -1,6 +1,6 @@
 import type { Deps } from '../../deps.ts'
 import { describeError, isNotModified, type BotInfo, type InlineButton } from '../../telegram.ts'
-import { SECTIONS } from './sections.ts'
+import { SECTIONS } from './sections/index.ts'
 import {
   MAIN,
   PANEL_PREFIX,
