@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Update } from 'grammy/types'
-import { ALLOWED_UPDATES, CANT_FORWARD, createApp, statusText } from '../src/app.ts'
+import { ALLOWED_UPDATES, CANT_FORWARD, UNKNOWN_COMMAND, commandOf, createApp } from '../src/app.ts'
 import { CONNECTED } from '../src/channels/private-chat/connection.ts'
 import { FIRST_TEXT_ONLY } from '../src/owner/manual-send.ts'
 import { STRAY_TOPIC } from '../src/owner/routing.ts'
@@ -81,45 +81,100 @@ test('кнопку нажал не владелец — ничего не про
   assert.equal(store.isProcessed(1301), false)
 })
 
-test('/start — статус без подключения', async () => {
+/** Сообщение владельца с командой — как его размечает Telegram. */
+function command(text: string, extra: { threadId?: number; updateId?: number } = {}): Update {
+  const update = withUpdateId(fixture('owner-message-start'), extra.updateId ?? 1205)
+  const name = text.split(' ')[0]!
+  update.message!.text = text
+  update.message!.entities = [{ type: 'bot_command', offset: 0, length: name.length }]
+  if (extra.threadId !== undefined) update.message!.message_thread_id = extra.threadId
+  return update
+}
+
+test('спека: владелец открывает панель — /start отвечает панелью с кнопками', async () => {
   const { app, tg } = started()
   await app.handleUpdate(fixture('owner-message-start'))
-  const status = tg.callsOf('sendText')[0]!.text
-  assert.match(status, /Подключение к аккаунту: бот его ещё не видел/)
-  assert.match(status, /Языки: русский ↔ английский/)
-  assert.match(status, /Модель: OpenRouter · Claude Haiku 5\.5/)
+  const [panel] = tg.callsOf('sendText')
+  assert.ok(panel!.text.startsWith('<b>⚙️ Переводчик</b>'))
+  assert.equal(panel!.opts.html, true)
+  assert.ok(panel!.opts.keyboard?.flat().some((button) => button.text === '🔄 Обновить'))
 })
 
-test('спека: в статусе — как написать первым и точный путь к настройке', async () => {
+test('спека: значок настроек на плашке чата — /start bizChat123 открывает ту же панель', async () => {
+  const { app, tg } = started()
+  await app.handleUpdate(command('/start bizChat123'))
+  assert.ok(tg.callsOf('sendText')[0]!.text.startsWith('<b>⚙️ Переводчик</b>'))
+})
+
+test('/start в теме — панель приходит в эту тему', async () => {
+  const { app, tg } = started()
+  await app.handleUpdate(command('/start', { threadId: 77 }))
+  assert.equal(tg.callsOf('sendText')[0]!.opts.threadId, 77)
+})
+
+test('спека: посторонний набирает /start — ни ответа, ни записей', async () => {
+  const { app, tg, store } = started()
+  const update = command('/start', { updateId: 1301 })
+  const message = update.message!
+  message.from = { ...message.from!, id: 400004 }
+  message.chat = { ...message.chat, id: 400004 } as typeof message.chat
+  await app.handleUpdate(update)
+  assert.equal(tg.calls.length, 0)
+  assert.equal(store.isProcessed(1301), false)
+})
+
+test('спека: команда в теме собеседнику не уходит — «Такой команды нет» в ту же тему', async () => {
+  const { app, tg, store, translator, connectOwner } = started()
+  connectOwner()
+  await app.handleUpdate(fixture('business-message-peer-text'))
+  const topicId = store.findConversationByPeer(OWNER_ID, PEER_ID)!.topicId!
+  const calls = translator.calls.length
+  await app.handleUpdate(command('/help', { threadId: topicId, updateId: 1302 }))
+  assert.equal(tg.sentAsOwner().length, 0)
+  assert.equal(translator.calls.length, calls)
+  const answer = tg.callsOf('sendText').at(-1)!
+  assert.equal(answer.text, UNKNOWN_COMMAND)
+  assert.equal(answer.text, 'Такой команды нет. Настройки и статус — /start.')
+  assert.equal(answer.opts.threadId, topicId)
+})
+
+test('спека: похожая команда — /startup панель не открывает', async () => {
+  const { app, tg } = started()
+  await app.handleUpdate(command('/startup'))
+  assert.deepEqual(tg.callsOf('sendText').map((call) => call.text), [UNKNOWN_COMMAND])
+})
+
+test('разбор команды: имя без «@бот» и параметров; не команда — null', () => {
+  const message = (text: string, entities?: { type: 'bot_command'; offset: number; length: number }[]) =>
+    ({ ...fixture('owner-message-start').message!, text, entities }) as Parameters<typeof commandOf>[0]
+  assert.equal(commandOf(message('/Start@translator_bot draft', [{ type: 'bot_command', offset: 0, length: 21 }])), 'start')
+  assert.equal(commandOf(message('/start')), null)
+  assert.equal(commandOf(message('привет /start', [{ type: 'bot_command', offset: 7, length: 6 }])), null)
+})
+
+test('спека: нажатие кнопки панели через диспетчер — экран правится на месте', async () => {
   const { app, tg } = started()
   await app.handleUpdate(fixture('owner-message-start'))
-  const status = tg.callsOf('sendText')[0]!.text
-  assert.match(
-    status,
-    /• Написать первым: отправьте текст сюда вне тем — бот переведёт и даст кнопку «Отправить через бота»/,
-  )
-  assert.match(status, /если нет — Настройки → Аккаунт → Автоматизация чатов \(на Mac — Настройки → Изменить профиль/)
+  const panelId = tg.callsOf('sendText')[0]!.id
+  const press = withUpdateId(fixture('callback-choose'), 1303)
+  press.callback_query!.data = 'p:refresh'
+  press.callback_query!.message = { ...press.callback_query!.message!, message_id: panelId }
+  await app.handleUpdate(press)
+  const [edit] = tg.callsOf('editText')
+  assert.equal(edit!.messageId, panelId)
+  assert.ok(edit!.text.startsWith('<b>⚙️ Переводчик</b>'))
+  assert.equal(tg.callsOf('sendText').length, 1)
 })
 
-test('/start — подключение выключено', () => {
-  const { deps, connectOwner } = setupDeps()
-  connectOwner({ isEnabled: false })
-  assert.match(statusText(deps), /Подключение к аккаунту: нет — подключите бота/)
-})
-
-test('/start — статус с подключением без права отвечать', async () => {
-  const { deps, connectOwner } = setupDeps()
-  connectOwner({ canReply: false })
-  const status = statusText(deps)
-  assert.match(status, /Подключение к аккаунту: есть/)
-  assert.match(status, /Ответы на сообщения/)
-})
-
-test('/start — статус показывает, что ключа нет и что прогон холостой', () => {
-  const { deps } = setupDeps({ overrides: { model: { ok: false, problem: 'Нет ключа модели — переводить нечем.' }, dry: true } })
-  const status = statusText(deps)
-  assert.match(status, /Модель: Нет ключа модели/)
-  assert.match(status, /Холостой прогон/)
+test('спека: панель пережила перезапуск — кнопка старой панели работает в новом приложении', async () => {
+  const ctx = setupDeps()
+  await createApp(ctx.deps).handleUpdate(fixture('owner-message-start'))
+  const panelId = ctx.tg.callsOf('sendText')[0]!.id
+  const press = withUpdateId(fixture('callback-choose'), 1304)
+  press.callback_query!.data = 'p:main'
+  press.callback_query!.message = { ...press.callback_query!.message!, message_id: panelId }
+  await createApp(ctx.deps).handleUpdate(press)
+  assert.equal(ctx.tg.callsOf('editText')[0]!.messageId, panelId)
 })
 
 test('спека: вне тем без активных разговоров — перевод для нового собеседника с кнопками, никому ничего не уходит', async () => {

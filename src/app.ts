@@ -1,13 +1,14 @@
 import type { CallbackQuery, Message, Update } from 'grammy/types'
-import { SETTINGS_PATH, isAllowedOwner, onBusinessConnection } from './channels/private-chat/connection.ts'
+import { isAllowedOwner, onBusinessConnection } from './channels/private-chat/connection.ts'
 import { onBusinessMessage } from './channels/private-chat/incoming.ts'
 import { sendOwnerReply } from './channels/private-chat/outgoing.ts'
 import type { Deps } from './deps.ts'
 import { extractMedia, unsupportedLabel } from './media.ts'
 import { answerInline, newPeerDraft } from './owner/manual-send.ts'
+import { createPanel, type Panel } from './owner/panel/panel.ts'
+import { PANEL_PREFIX } from './owner/panel/screen.ts'
 import { STRAY_TOPIC, askWhom, onChoice, routeOwnerMessage } from './owner/routing.ts'
 import { TelegramError, describeError, toConnectionInfo } from './telegram.ts'
-import type { Connection } from './types.ts'
 
 /**
  * Какие апдейты просить у Telegram. Без inline_query кнопка «Отправить через бота» молча не
@@ -17,45 +18,41 @@ export const ALLOWED_UPDATES = ['business_connection', 'business_message', 'mess
 
 export const CANT_FORWARD = 'Такое бот переслать не умеет — отправьте это собеседнику в личке сами.'
 
-/** Нет записи — бот ещё не видел подключения; запись выключена — владелец отключил бота. */
-function connectionLine(connection: Connection | undefined): string {
-  if (!connection) {
-    return `бот его ещё не видел. Если уже подключили — появится с первым сообщением в личке; если нет — ${SETTINGS_PATH}`
-  }
-  return connection.isEnabled ? 'есть' : `нет — подключите бота: ${SETTINGS_PATH}`
+export const UNKNOWN_COMMAND = 'Такой команды нет. Настройки и статус — /start.'
+
+/**
+ * Команда в начале сообщения: «/start», «/start bizChat123», «/help@бот». Telegram сам
+ * размечает её сущностью bot_command — по ней, а не по startsWith: иначе «/startup» сошёл бы
+ * за «/start», а «/help» ушёл бы собеседнику переводом.
+ */
+export function commandOf(message: Message): string | null {
+  const entity = message.entities?.[0]
+  if (!message.text || entity?.type !== 'bot_command' || entity.offset !== 0) return null
+  return message.text.slice(1, entity.length).split('@')[0]!.toLowerCase()
 }
 
-export const WRITE_FIRST_HINT =
-  'Написать первым: отправьте текст сюда вне тем — бот переведёт и даст кнопку «Отправить через бота»'
+type Command = (deps: Deps, panel: Panel, message: Message) => Promise<void>
 
-/** Статус по /start: по нему владелец видит, работает ли перевод и что включить. */
-export function statusText(deps: Deps): string {
-  const connection = deps.store.ownerConnection(deps.ownerId)
-  const connected = connection?.isEnabled === true
-  const config = deps.config(deps.ownerId)
-  const languages = config.languages
-    ? `${config.languages.owner.nameRu} ↔ ${config.languages.peer.nameRu}`
-    : (config.languagesProblem ?? 'не настроены')
-  const model = config.model.ok ? `${config.model.provider.label} · ${config.model.title}` : config.model.problem
-  return [
-    'Статус переводчика',
-    `• Подключение к аккаунту: ${connectionLine(connection)}`,
-    `• Право отвечать от вашего имени: ${
-      !connected ? '—' : connection.canReply ? 'есть' : `нет — включите «Ответы на сообщения» (раздел «Сообщения»): ${SETTINGS_PATH}`
-    }`,
-    `• Языки: ${languages}`,
-    `• Модель: ${model}`,
-    `• ${WRITE_FIRST_HINT}`,
-    ...(deps.dry ? ['• Холостой прогон: собеседникам ничего не уходит'] : []),
-  ].join('\n')
+/** Реестр команд. Новая команда — новая строка; меню команд — BOT_COMMANDS в startup.ts. */
+const COMMANDS: Readonly<Record<string, Command>> = {
+  start: (deps, panel, message) => panel.open(deps.ownerId, { threadId: message.message_thread_id }),
 }
 
 /** Сообщение в чате с ботом. Обрабатываем только владельца: чужие не получают ни ответа, ни записи в базе. */
-async function onOwnerMessage(deps: Deps, message: Message): Promise<void> {
+async function onOwnerMessage(deps: Deps, panel: Panel, message: Message): Promise<void> {
   if (message.chat.type !== 'private' || !isAllowedOwner(message.from?.id ?? 0, deps.ownerId)) return
 
-  if (message.text?.startsWith('/start')) {
-    await deps.api.sendText(deps.ownerId, statusText(deps))
+  const command = commandOf(message)
+  if (command !== null) {
+    // Команда собеседнику не уходит никогда — ни в теме, ни вне тем.
+    const run = COMMANDS[command]
+    if (run) await run(deps, panel, message)
+    else {
+      await deps.api.sendText(deps.ownerId, UNKNOWN_COMMAND, {
+        replyTo: message.message_id,
+        ...(message.message_thread_id !== undefined && { threadId: message.message_thread_id }),
+      })
+    }
     return
   }
 
@@ -85,12 +82,30 @@ async function onOwnerMessage(deps: Deps, message: Message): Promise<void> {
   }
 }
 
-async function onCallback(deps: Deps, callback: CallbackQuery): Promise<void> {
-  if (!isAllowedOwner(callback.from.id, deps.ownerId) || !callback.data) return
-  // Вопрос «Кому?» сам служит подтверждением, поэтому «✓ <имя>» здесь не нужно.
-  await onChoice(deps, { id: callback.id, data: callback.data }, (conversation, payload) =>
-    sendOwnerReply(deps, conversation, payload, { outsideTopic: false }),
-  )
+type CallbackRoute = { prefix: string; run: (deps: Deps, panel: Panel, callback: CallbackQuery & { data: string }) => Promise<void> }
+
+/** Реестр нажатий по префиксу данных: первое совпадение. Пустой префикс — «Кому?», как было. */
+const CALLBACKS: readonly CallbackRoute[] = [
+  {
+    prefix: PANEL_PREFIX,
+    run: (deps, panel, callback) =>
+      panel.onCallback({ id: callback.id, data: callback.data, messageId: callback.message?.message_id }, deps.ownerId),
+  },
+  {
+    prefix: '',
+    // Вопрос «Кому?» сам служит подтверждением, поэтому «✓ <имя>» здесь не нужно.
+    run: (deps, _panel, callback) =>
+      onChoice(deps, { id: callback.id, data: callback.data }, (conversation, payload) =>
+        sendOwnerReply(deps, conversation, payload, { outsideTopic: false }),
+      ),
+  },
+]
+
+async function onCallback(deps: Deps, panel: Panel, callback: CallbackQuery): Promise<void> {
+  const data = callback.data
+  if (!isAllowedOwner(callback.from.id, deps.ownerId) || !data) return
+  const route = CALLBACKS.find((candidate) => data.startsWith(candidate.prefix))!
+  await route.run(deps, panel, { ...callback, data })
 }
 
 type Handler = {
@@ -105,6 +120,7 @@ const OWN_MESSAGE_FAILURE = (reason: string) =>
   `Не удалось обработать ваше сообщение: ${reason}. Ответ мог не уйти — проверьте личку и отправьте снова.`
 
 export function createApp(deps: Deps): { handleUpdate(update: Update): Promise<void> } {
+  const panel = createPanel(deps)
   // Реестр обработчиков. Режим через бота и группа встанут сюда новыми строками.
   const handlers: Handler[] = [
     {
@@ -123,13 +139,13 @@ export function createApp(deps: Deps): { handleUpdate(update: Update): Promise<v
     {
       name: 'чат с ботом',
       match: (u) => u.message !== undefined,
-      run: (u) => onOwnerMessage(deps, u.message!),
+      run: (u) => onOwnerMessage(deps, panel, u.message!),
       failure: OWN_MESSAGE_FAILURE,
     },
     {
       name: 'кнопка',
       match: (u) => u.callback_query !== undefined,
-      run: (u) => onCallback(deps, u.callback_query!),
+      run: (u) => onCallback(deps, panel, u.callback_query!),
       failure: OWN_MESSAGE_FAILURE,
     },
     {
