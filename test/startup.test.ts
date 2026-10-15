@@ -70,7 +70,7 @@ test('спека: пользователям разрешено создават
   assert.equal(
     USER_TOPICS_ON,
     'В BotFather пользователям разрешено создавать темы — так в чате с ботом можно завести тему, которую бот не узнает. ' +
-      'Откройте @BotFather → Open → этот бот → Bot Settings и выключите создание тем пользователями.',
+      'Откройте @BotFather → Open → этот бот → Bot Settings и включите переключатель Disallow users to create new threads.',
   )
 })
 

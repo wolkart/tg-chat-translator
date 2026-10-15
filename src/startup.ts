@@ -37,7 +37,9 @@ const USER_TOPICS: BotFatherCheck = {
   ok: (me) => !me.allowsUsersToCreateTopics,
   what: 'пользователям разрешено создавать темы',
   why: 'так в чате с ботом можно завести тему, которую бот не узнает',
-  fix: 'Откройте @BotFather → Open → этот бот → Bot Settings и выключите создание тем пользователями.',
+  // На экране BotFather (2026-10-15) это переключатель «Disallow users to create new threads» в разделе
+  // Threads Settings — его надо включить, поэтому и название — дословно, как на экране.
+  fix: 'Откройте @BotFather → Open → этот бот → Bot Settings и включите переключатель Disallow users to create new threads.',
 }
 
 const INLINE: BotFatherCheck = {
