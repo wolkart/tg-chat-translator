@@ -87,7 +87,7 @@ test('/start — статус без подключения', async () => {
   const status = tg.callsOf('sendText')[0]!.text
   assert.match(status, /Подключение к аккаунту: бот его ещё не видел/)
   assert.match(status, /Языки: русский ↔ английский/)
-  assert.match(status, /Модель: OpenRouter · openai\/gpt-4\.1-mini/)
+  assert.match(status, /Модель: OpenRouter · anthropic\/claude-haiku-5\.5/)
 })
 
 test('спека: в статусе — как написать первым и точный путь к настройке', async () => {
@@ -116,7 +116,7 @@ test('/start — статус с подключением без права от
 })
 
 test('/start — статус показывает, что ключа нет и что прогон холостой', () => {
-  const { deps } = setupDeps({ overrides: { translatorInfo: 'Нет ключа модели — переводить нечем.', dry: true } })
+  const { deps } = setupDeps({ overrides: { model: { ok: false, problem: 'Нет ключа модели — переводить нечем.' }, dry: true } })
   const status = statusText(deps)
   assert.match(status, /Модель: Нет ключа модели/)
   assert.match(status, /Холостой прогон/)

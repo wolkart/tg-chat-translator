@@ -26,11 +26,17 @@ export const SETTING = {
   peerLang: 'peer_lang',
   provider: 'provider',
   model: 'model',
+  address: 'address',
 } as const
 
 export const LANGUAGE_DEFAULTS: Record<string, string> = {
   [SETTING.ownerLang]: 'ru',
   [SETTING.peerLang]: 'en',
+}
+
+/** «Как в разговоре»: деловое обращение владелец включает сам, в панели. */
+export const ADDRESS_DEFAULTS: Record<string, string> = {
+  [SETTING.address]: 'as-is',
 }
 
 const SCHEMA = `

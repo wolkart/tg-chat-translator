@@ -110,14 +110,16 @@ export async function newPeerDraft(deps: Deps, payload: OwnerPayload): Promise<v
     await deps.api.sendText(deps.ownerId, FIRST_TEXT_ONLY, { replyTo: payload.sourceMessageId })
     return
   }
-  if (!deps.translator || !deps.languages) {
-    await reply(deps, payload.sourceMessageId, renderDraftFailed(translatorUnavailable(deps)))
+  const config = deps.config(deps.ownerId)
+  if (!config.translator || !config.languages) {
+    await reply(deps, payload.sourceMessageId, renderDraftFailed(translatorUnavailable(config)))
     return
   }
+  const { languages } = config
 
   let translation: string
   try {
-    translation = await deps.translator({ target: deps.languages.peer, history: [], text: payload.text })
+    translation = await config.translator({ target: languages.peer, history: [], text: payload.text })
   } catch (error) {
     await alertModelFailure(deps.alerts, error)
     await reply(deps, payload.sourceMessageId, renderDraftFailed(describeError(error)))
@@ -128,8 +130,8 @@ export async function newPeerDraft(deps: Deps, payload: OwnerPayload): Promise<v
     direction: 'outgoing',
     original: payload.text,
     translation,
-    owner: deps.languages.owner,
-    target: deps.languages.peer,
+    owner: languages.owner,
+    target: languages.peer,
   })
   if (review.verdict !== 'ok') {
     await reply(deps, payload.sourceMessageId, renderSuspiciousDraft(translation))
@@ -141,7 +143,7 @@ export async function newPeerDraft(deps: Deps, payload: OwnerPayload): Promise<v
     conversationId: null,
     original: payload.text,
     translation,
-    head: newPeerHead(deps.languages.peer.nameRu),
+    head: newPeerHead(languages.peer.nameRu),
     media: false,
   })
   await reply(deps, payload.sourceMessageId, html, keyboard)

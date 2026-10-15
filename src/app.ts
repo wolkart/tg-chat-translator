@@ -32,9 +32,11 @@ export const WRITE_FIRST_HINT =
 export function statusText(deps: Deps): string {
   const connection = deps.store.ownerConnection(deps.ownerId)
   const connected = connection?.isEnabled === true
-  const languages = deps.languages
-    ? `${deps.languages.owner.nameRu} ↔ ${deps.languages.peer.nameRu}`
-    : (deps.languagesProblem ?? 'не настроены')
+  const config = deps.config(deps.ownerId)
+  const languages = config.languages
+    ? `${config.languages.owner.nameRu} ↔ ${config.languages.peer.nameRu}`
+    : (config.languagesProblem ?? 'не настроены')
+  const model = config.model.ok ? `${config.model.provider.label} · ${config.model.model}` : config.model.problem
   return [
     'Статус переводчика',
     `• Подключение к аккаунту: ${connectionLine(connection)}`,
@@ -42,7 +44,7 @@ export function statusText(deps: Deps): string {
       !connected ? '—' : connection.canReply ? 'есть' : `нет — включите «Ответы на сообщения» (раздел «Сообщения»): ${SETTINGS_PATH}`
     }`,
     `• Языки: ${languages}`,
-    `• Модель: ${deps.translatorInfo}`,
+    `• Модель: ${model}`,
     `• ${WRITE_FIRST_HINT}`,
     ...(deps.dry ? ['• Холостой прогон: собеседникам ничего не уходит'] : []),
   ].join('\n')

@@ -1,14 +1,13 @@
 import type { Alerts } from './alerts.ts'
-import type { LanguagePair } from './lang/profiles.ts'
 import type { Topics } from './owner/topics.ts'
+import type { Config } from './settings.ts'
 import type { Store } from './store.ts'
 import type { TelegramApi } from './telegram.ts'
 import type { Reviewer } from './translate/check.ts'
-import type { Translator } from './translate/llm.ts'
 
 /** Почему переводчика нет: причина из настройки или общая фраза. Один текст для всех мест показа. */
-export function translatorUnavailable(deps: Deps): string {
-  return deps.translatorProblem ?? deps.languagesProblem ?? 'переводчик не настроен'
+export function translatorUnavailable(config: Config): string {
+  return config.translatorProblem ?? config.languagesProblem ?? 'переводчик не настроен'
 }
 
 /**
@@ -23,14 +22,8 @@ export type Deps = {
   /** Владелец из .env — пока единственный, чей аккаунт обслуживаем */
   ownerId: number
   botId: number
-  /** null — язык без профиля: новые разговоры не заводятся */
-  languages: LanguagePair | null
-  languagesProblem: string | null
-  /** null — нет ключа модели: входящие показываются без перевода */
-  translator: Translator | null
-  translatorProblem: string | null
-  /** Для статуса: «OpenRouter · anthropic/claude-haiku-5.5» или причина, почему модели нет */
-  translatorInfo: string
+  /** Настройки владельца в момент вызова: панель меняет их без перезапуска */
+  config: (ownerId: number) => Config
   /** Проверка ответа модели до показа владельцу и до отправки собеседнику */
   review: Reviewer
   /** Включён ли Inline Mode в BotFather: без него у перевода нет кнопки «Отправить через бота» */

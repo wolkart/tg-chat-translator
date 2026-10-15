@@ -7,12 +7,11 @@ import {
   INLINE_RECHECK_MS,
   TOPICS_OFF,
   createInlineCheck,
-  loadSettings,
   startupChecks,
 } from '../src/startup.ts'
-import { LANGUAGE_DEFAULTS, SETTING, openStore } from '../src/store.ts'
+import { FIRST_RUN_DEFAULTS, createConfig } from '../src/settings.ts'
+import { SETTING, openStore } from '../src/store.ts'
 import type { BotInfo } from '../src/telegram.ts'
-import { PROVIDER_DEFAULTS } from '../src/translate/providers.ts'
 import { fakeTelegram } from './fakes.ts'
 import { OWNER_ID } from './helpers.ts'
 
@@ -45,11 +44,11 @@ test('язык без профиля и нет ключа — оба сообщ�
 test('язык без профиля в базе — разговоры не заводятся, владелец получает список языков', async () => {
   const { tg, alerts } = setup()
   const store = openStore(':memory:')
-  store.ensureDefaults(OWNER_ID, { ...LANGUAGE_DEFAULTS, ...PROVIDER_DEFAULTS })
+  store.ensureDefaults(OWNER_ID, FIRST_RUN_DEFAULTS)
   store.setSetting(OWNER_ID, SETTING.ownerLang, 'xx')
-  const { pair } = loadSettings(store, OWNER_ID, { providerKeys: {}, localBaseUrl: undefined })
-  assert.equal(pair.ok, false)
-  await startupChecks({ me: healthy, alerts, languagesProblem: pair.ok ? null : pair.problem, modelProblem: null })
+  const config = createConfig({ store, env: { providerKeys: {} } })(OWNER_ID)
+  assert.equal(config.languages, null)
+  await startupChecks({ me: healthy, alerts, languagesProblem: config.languagesProblem, modelProblem: null })
   const texts = tg.callsOf('sendText').map((call) => call.text)
   assert.equal(texts.length, 1)
   assert.match(texts[0]!, /английский/)
@@ -58,10 +57,9 @@ test('язык без профиля в базе — разговоры не з�
 
 test('пустая база после ensureDefaults — пара русский ↔ английский', () => {
   const store = openStore(':memory:')
-  store.ensureDefaults(OWNER_ID, { ...LANGUAGE_DEFAULTS, ...PROVIDER_DEFAULTS })
-  const { pair } = loadSettings(store, OWNER_ID, { providerKeys: {}, localBaseUrl: undefined })
-  assert.equal(pair.ok, true)
-  if (pair.ok) assert.deepEqual([pair.pair.owner.code, pair.pair.peer.code].sort(), ['en', 'ru'])
+  store.ensureDefaults(OWNER_ID, FIRST_RUN_DEFAULTS)
+  const { languages } = createConfig({ store, env: { providerKeys: {} } })(OWNER_ID)
+  assert.deepEqual([languages?.owner.code, languages?.peer.code].sort(), ['en', 'ru'])
   store.close()
 })
 

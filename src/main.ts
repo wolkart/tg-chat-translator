@@ -3,12 +3,11 @@ import { createAlerts, createScrubber } from './alerts.ts'
 import { ALLOWED_UPDATES, createApp } from './app.ts'
 import { loadEnv } from './env.ts'
 import { createTopics } from './owner/topics.ts'
-import { createInlineCheck, loadSettings, startupChecks } from './startup.ts'
-import { HOUR, LANGUAGE_DEFAULTS, openStore } from './store.ts'
+import { FIRST_RUN_DEFAULTS, createConfig } from './settings.ts'
+import { createInlineCheck, startupChecks } from './startup.ts'
+import { HOUR, openStore } from './store.ts'
 import { createTelegramApi, describeError } from './telegram.ts'
 import { reviewTranslation } from './translate/check.ts'
-import { createTranslator } from './translate/llm.ts'
-import { PROVIDER_DEFAULTS } from './translate/providers.ts'
 
 const result = loadEnv()
 if (!result.ok) {
@@ -25,7 +24,8 @@ const dry = process.argv.includes('--dry')
 const now = () => Date.now()
 
 const store = openStore(env.dbPath)
-store.ensureDefaults(env.ownerId, { ...LANGUAGE_DEFAULTS, ...PROVIDER_DEFAULTS })
+store.ensureDefaults(env.ownerId, FIRST_RUN_DEFAULTS)
+const config = createConfig({ store, env })
 
 const bot = new Bot(env.botToken)
 const api = createTelegramApi(bot.api, env.botToken)
@@ -41,13 +41,13 @@ try {
   process.exit(1)
 }
 
-const { pair, model } = loadSettings(store, env.ownerId, env)
+const initial = config(env.ownerId)
 
 await startupChecks({
   me,
   alerts,
-  languagesProblem: pair.ok ? null : pair.problem,
-  modelProblem: model.ok ? null : model.problem,
+  languagesProblem: initial.languagesProblem,
+  modelProblem: initial.translatorProblem,
 })
 
 const app = createApp({
@@ -57,13 +57,7 @@ const app = createApp({
   topics: createTopics({ api, store, ownerChatId: env.ownerId, now, scrub }),
   ownerId: env.ownerId,
   botId: me.id,
-  languages: pair.ok ? pair.pair : null,
-  languagesProblem: pair.ok ? null : pair.problem,
-  translator: model.ok
-    ? createTranslator({ baseUrl: model.baseUrl, apiKey: model.apiKey, model: model.model, provider: model.provider })
-    : null,
-  translatorProblem: model.ok ? null : model.problem,
-  translatorInfo: model.ok ? `${model.provider.label} · ${model.model}` : model.problem,
+  config,
   review: reviewTranslation,
   inlineEnabled: createInlineCheck({ api, initial: me.supportsInlineQueries, now }),
   dry,

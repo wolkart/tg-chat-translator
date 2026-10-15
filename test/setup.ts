@@ -2,10 +2,12 @@ import { createAlerts } from '../src/alerts.ts'
 import type { Deps } from '../src/deps.ts'
 import { resolvePair } from '../src/lang/profiles.ts'
 import { createTopics } from '../src/owner/topics.ts'
+import { FIRST_RUN_DEFAULTS, createConfig, type Config } from '../src/settings.ts'
 import { openStore } from '../src/store.ts'
 import type { BusinessConnectionInfo } from '../src/telegram.ts'
 import type { Reviewer } from '../src/translate/check.ts'
 import type { TranslateRequest, Translator } from '../src/translate/llm.ts'
+import { PROVIDERS } from '../src/translate/providers.ts'
 import { fakeTelegram } from './fakes.ts'
 import { BOT_ID, CONNECTION_ID, OWNER_ID, T0 } from './helpers.ts'
 
@@ -35,11 +37,33 @@ export const OWNER_CONNECTION: BusinessConnectionInfo = {
   isEnabled: true,
 }
 
-/** Зависимости из подделок. Часы стоят на месте, пока тест не сдвинет их сам. */
-export function setupDeps(options: { overrides?: Partial<Deps>; connections?: BusinessConnectionInfo[] } = {}) {
+/** Выдуманный ключ OpenRouter нужной формы: настоящих ключей в тестах нет. */
+export const TEST_KEY = `sk-or-v1-${'0123456789abcdef'.repeat(4)}`
+
+/** Модель, которую видят тесты с неизменными настройками. */
+export const TEST_MODEL: Config['model'] = {
+  ok: true,
+  provider: PROVIDERS[0]!,
+  model: 'anthropic/claude-haiku-5.5',
+  apiKey: TEST_KEY,
+  baseUrl: PROVIDERS[0]!.baseUrl,
+}
+
+/** Части настроек, которые тест может подменить, не трогая базу. */
+type ConfigOverrides = Partial<Config>
+
+/**
+ * Зависимости из подделок. Часы стоят на месте, пока тест не сдвинет их сам.
+ * По умолчанию настройки неизменны (из overrides или подделок). live: true — настройки
+ * читаются из базы, как в боте: так проверяется, что панель меняет их без перезапуска.
+ */
+export function setupDeps(
+  options: { overrides?: Partial<Deps> & ConfigOverrides; connections?: BusinessConnectionInfo[]; live?: boolean } = {},
+) {
   let clock = T0
   const now = () => clock
   const store = openStore(':memory:')
+  store.ensureDefaults(OWNER_ID, FIRST_RUN_DEFAULTS)
   const tg = fakeTelegram({ connections: options.connections ?? [OWNER_CONNECTION] })
   const printed: string[] = []
   const alerts = createAlerts({ api: tg.api, ownerChatId: OWNER_ID, scrub: (t) => t, now, print: (line) => printed.push(line) })
@@ -48,6 +72,20 @@ export function setupDeps(options: { overrides?: Partial<Deps>; connections?: Bu
   const pair = resolvePair('ru', 'en')
   if (!pair.ok) throw new Error(pair.problem)
 
+  const { languages, languagesProblem, address, model, translator: translatorOverride, translatorProblem, ...overrides } =
+    options.overrides ?? {}
+  const fixed: Config = {
+    languages: languages === undefined ? pair.pair : languages,
+    languagesProblem: languagesProblem ?? null,
+    address: address ?? 'as-is',
+    model: model ?? TEST_MODEL,
+    translator: translatorOverride === undefined ? translator.translate : translatorOverride,
+    translatorProblem: translatorProblem ?? null,
+  }
+  const config = options.live
+    ? createConfig({ store, env: { providerKeys: { OPENROUTER_API_KEY: TEST_KEY } }, makeTranslator: () => translator.translate })
+    : () => fixed
+
   const deps: Deps = {
     api: tg.api,
     store,
@@ -55,16 +93,12 @@ export function setupDeps(options: { overrides?: Partial<Deps>; connections?: Bu
     topics,
     ownerId: OWNER_ID,
     botId: BOT_ID,
-    languages: pair.pair,
-    languagesProblem: null,
-    translator: translator.translate,
-    translatorProblem: null,
-    translatorInfo: 'OpenRouter · openai/gpt-4.1-mini',
+    config,
     review: passReview,
     inlineEnabled: async () => true,
     dry: false,
     now,
-    ...options.overrides,
+    ...overrides,
   }
 
   return {

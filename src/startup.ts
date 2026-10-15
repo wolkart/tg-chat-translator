@@ -1,8 +1,5 @@
 import type { Alerts } from './alerts.ts'
-import { resolvePair } from './lang/profiles.ts'
-import { LANGUAGE_DEFAULTS, SETTING, type Store } from './store.ts'
 import type { BotInfo, TelegramApi } from './telegram.ts'
-import { resolveModel } from './translate/providers.ts'
 
 export const BUSINESS_MODE_OFF =
   'В BotFather выключен Business Mode — без него бот не видит вашу личку. ' +
@@ -39,23 +36,6 @@ export function createInlineCheck(deps: { api: TelegramApi; initial: boolean; no
     }
     return enabled
   }
-}
-
-/** Языки и модель из базы. Вынесено из main.ts, чтобы выбор на старте покрывался тестами. */
-export function loadSettings(
-  store: Store,
-  ownerId: number,
-  env: { providerKeys: Record<string, string>; localBaseUrl?: string },
-) {
-  const pair = resolvePair(
-    store.getSetting(ownerId, SETTING.ownerLang) ?? LANGUAGE_DEFAULTS[SETTING.ownerLang]!,
-    store.getSetting(ownerId, SETTING.peerLang) ?? LANGUAGE_DEFAULTS[SETTING.peerLang]!,
-  )
-  const model = resolveModel(
-    { provider: store.getSetting(ownerId, SETTING.provider), model: store.getSetting(ownerId, SETTING.model) },
-    env,
-  )
-  return { pair, model }
 }
 
 /**

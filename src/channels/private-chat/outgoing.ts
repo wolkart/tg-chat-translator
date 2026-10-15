@@ -64,19 +64,20 @@ export async function sendOwnerReply(
   opts: { outsideTopic: boolean },
 ): Promise<boolean> {
   const original = originalOf(payload)
+  const config = deps.config(conversation.ownerId)
 
   let translation = ''
   if (payload.text) {
-    if (!deps.translator || !deps.languages) {
+    if (!config.translator || !config.languages) {
       await deps.topics.postText(
         conversation,
-        renderNotTranslated(translatorUnavailable(deps)),
+        renderNotTranslated(translatorUnavailable(config)),
       )
       return false
     }
     const history = deps.store.recentReplicas(conversation.id)
     try {
-      translation = await deps.translator({ target: deps.languages.peer, history, text: payload.text })
+      translation = await config.translator({ target: config.languages.peer, history, text: payload.text })
     } catch (error) {
       const reason = describeError(error)
       await alertModelFailure(deps.alerts, error)
@@ -89,8 +90,8 @@ export async function sendOwnerReply(
       direction: 'outgoing',
       original: payload.text,
       translation,
-      owner: deps.languages.owner,
-      target: deps.languages.peer,
+      owner: config.languages.owner,
+      target: config.languages.peer,
     })
     if (review.verdict !== 'ok') {
       await deps.topics.postText(conversation, renderSuspiciousReply(translation))

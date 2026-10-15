@@ -16,6 +16,7 @@ import {
 } from '../../owner/topics.ts'
 import { runPipeline, type Step, type StepResult } from '../../pipeline.ts'
 import { describeError } from '../../telegram.ts'
+import type { Config } from '../../settings.ts'
 import type { Connection, Replica } from '../../types.ts'
 import { ensureConnection } from './connection.ts'
 
@@ -54,12 +55,17 @@ function historyText(replica: Replica): string {
   return `[${replica.unsupported ?? 'сообщение'}]`
 }
 
-export function incomingSteps(deps: Deps): Step<Replica>[] {
+/**
+ * Шаги конвейера лички. Настройки читаются один раз на сообщение: все шаги видят одну и ту
+ * же пару языков, даже если владелец меняет её в панели прямо сейчас.
+ */
+export function incomingSteps(deps: Deps, config: Config): Step<Replica>[] {
+  const { languages } = config
   return [
     {
       name: 'язык',
       run: (replica) => {
-        replica.verdict = deps.languages ? detectLanguage(replica.text, deps.languages.owner) : 'unknown'
+        replica.verdict = languages ? detectLanguage(replica.text, languages.owner) : 'unknown'
         return 'next'
       },
     },
@@ -86,7 +92,7 @@ export function incomingSteps(deps: Deps): Step<Replica>[] {
           })
           return 'next'
         }
-        if (replica.direction !== 'peer' || !deps.languages || replica.verdict !== 'foreign') return 'stop'
+        if (replica.direction !== 'peer' || !languages || replica.verdict !== 'foreign') return 'stop'
         replica.conversation = deps.store.createConversation({
           ownerId: replica.ownerId,
           connectionId: replica.connectionId,
@@ -124,13 +130,13 @@ export function incomingSteps(deps: Deps): Step<Replica>[] {
         // Модель зовём только для чужого языка: своё сообщение владельца, реплика на его
         // языке или «ok» показываются как есть — бесплатно и без лишней отправки текста наружу.
         if (replica.direction !== 'peer' || !replica.text || replica.verdict !== 'foreign') return 'next'
-        if (!deps.translator || !deps.languages) {
-          replica.translationError = translatorUnavailable(deps)
+        if (!config.translator || !languages) {
+          replica.translationError = translatorUnavailable(config)
           return 'next'
         }
         const history = deps.store.recentReplicas(replica.conversation!.id)
         try {
-          replica.translation = await deps.translator({ target: deps.languages.owner, history, text: replica.text })
+          replica.translation = await config.translator({ target: languages.owner, history, text: replica.text })
         } catch (error) {
           replica.translationError = describeError(error)
           // Пометка в теме — у каждого сообщения, а общее сообщение говорит, что сломано и что
@@ -142,8 +148,8 @@ export function incomingSteps(deps: Deps): Step<Replica>[] {
             direction: 'incoming',
             original: replica.text,
             translation: replica.translation,
-            owner: deps.languages.owner,
-            target: deps.languages.owner,
+            owner: languages.owner,
+            target: languages.owner,
           })
         }
         return 'next'
@@ -229,5 +235,5 @@ export async function onBusinessMessage(deps: Deps, message: Message): Promise<v
 
   const replica = parseBusinessMessage(message, connection, deps.botId)
   if (replica === 'echo') return
-  await runPipeline(replica, incomingSteps(deps))
+  await runPipeline(replica, incomingSteps(deps, deps.config(replica.ownerId)))
 }
