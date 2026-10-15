@@ -22,7 +22,7 @@ export const KEY: Section = {
         '',
         `Ключ ${label}: ${state}`,
         '',
-        `Ключ — это пароль от вашего счёта у ${label}: по нему бот платит за переводы. Берут его здесь: ${provider.keysUrl}`,
+        `Ключ — это пароль от вашего счёта у ${label}: по нему бот платит за переводы. Берут его здесь: ${escapeHtml(provider.keysUrl)}`,
       ].join('\n'),
       // Ключ из .env главнее панели: кнопка сохранила бы ключ, который всё равно не заработает.
       keyboard: [
@@ -34,6 +34,8 @@ export const KEY: Section = {
 
   act(ctx, env, act) {
     if (act === 'paste') {
+      // Старая кнопка: ключ мог переехать в .env уже после того, как экран нарисовали.
+      if (ctx.config.keys[ctx.config.provider.id]?.source === 'env') return { show: 'section' }
       env.waits.start(ctx.ownerId, ctx.config.provider.id, { switchProvider: false })
       return { show: pasteScreen(ctx.config.provider) }
     }

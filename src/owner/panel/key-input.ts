@@ -3,7 +3,7 @@ import { dayMonth, money } from '../../format.ts'
 import { escapeHtml } from '../../html.ts'
 import { keySetting, SETTING } from '../../store.ts'
 import type { Balance } from '../../translate/account.ts'
-import { getProvider, looksLikeKey, providerBaseUrl, type Provider } from '../../translate/providers.ts'
+import { getProvider, looksLikeKey, PROVIDERS, providerBaseUrl, type Provider } from '../../translate/providers.ts'
 import type { KeyWait, KeyWaits, Screen } from './screen.ts'
 import { action } from './screen.ts'
 
@@ -35,7 +35,8 @@ export function createKeyWaits(now: () => number): KeyWaits {
 /** Ключ огрызком: префикс провайдера и четыре последних знака — «sk-or-v1-…a3f9». */
 export function maskKey(key: string): string {
   if (key.length <= 16) return '••••'
-  const head = /^[a-z]+[-_](?:or-v1-)?/.exec(key)?.[0] ?? ''
+  // Только известные префиксы провайдеров: у чужого формата «слово_» в начале может быть частью секрета.
+  const head = /^(?:sk-or-v1-|sk-|gsk_)/.exec(key)?.[0] ?? ''
   return `${head}…${key.slice(-4)}`
 }
 
@@ -45,7 +46,7 @@ export function pasteScreen(provider: Provider): Screen {
     html: [
       `<b>🔑 Ключ ${label}</b>`,
       '',
-      `Пришлите ключ ${label} одним сообщением. Ключ берут здесь: ${provider.keysUrl}.`,
+      `Пришлите ключ ${label} одним сообщением. Ключ берут здесь: ${escapeHtml(provider.keysUrl)}.`,
       '',
       'Сообщение с ключом бот сразу удалит из переписки.',
       '',
@@ -67,6 +68,10 @@ export function notAKey(provider: Provider): string {
   return `Это не похоже на ключ ${provider.label} — ${provider.keyHint ?? 'проверьте, что скопировали его целиком'}. Пришлите ключ ещё раз или нажмите «Отмена».`
 }
 
+export function otherProviderKey(provider: Provider): string {
+  return `Это ключ другого провайдера — сообщение удалено, ключ не сохранён. Пришлите ключ ${provider.label} или смените провайдера: 🤖 Модель → Сменить провайдера.`
+}
+
 export function keyRejected(provider: Provider): string {
   return `❌ ${provider.label} не принял ключ — проверьте, что скопировали его целиком. Пришлите ключ ещё раз или нажмите «Отмена».`
 }
@@ -79,7 +84,7 @@ export function keyUnchecked(reason: string): string {
 export function keySaved(key: string, balance: Balance | null): string {
   const saved = `✅ Ключ сохранён: ${escapeHtml(maskKey(key))}.`
   if (!balance || balance.remaining === null) return saved
-  const term = balance.expiresAt === null ? 'бессрочный' : `действует до ${dayMonth(balance.expiresAt)}`
+  const term = balance.expiresAt === null ? 'ключ бессрочный' : `действует до ${dayMonth(balance.expiresAt)}`
   return `${saved} Осталось ${money(balance.remaining)}, ${term}.`
 }
 
@@ -109,6 +114,16 @@ export async function onKeyText(
     const provider = getProvider(wait.providerId)
     const key = extractKey(provider, message.text)
     if (!key) {
+      if (looksLikeKey(message.text)) {
+        // Ключ другого провайдера: сохранять нельзя, но и в переписке оставлять нельзя.
+        for (const other of PROVIDERS) {
+          const found = other.keyPattern && new RegExp(other.keyPattern.source, 'g')
+          for (const match of found ? message.text.matchAll(found) : []) deps.addSecret(match[0])
+        }
+        if (!(await remove(deps, ownerId, message.messageId))) await deps.api.sendText(ownerId, KEY_NOT_DELETED)
+        await deps.api.sendText(ownerId, otherProviderKey(provider), { replyTo: message.messageId })
+        return true
+      }
       await deps.api.sendText(ownerId, notAKey(provider), { replyTo: message.messageId })
       return true
     }

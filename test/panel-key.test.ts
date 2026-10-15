@@ -2,7 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Update } from 'grammy/types'
 import { createApp } from '../src/app.ts'
-import { KEY_GUARD, KEY_GUARD_NOT_DELETED, KEY_NOT_DELETED, KEY_WAIT_MS, maskKey } from '../src/owner/panel/key-input.ts'
+import { getProvider } from '../src/translate/providers.ts'
+import { KEY_GUARD, KEY_GUARD_NOT_DELETED, KEY_NOT_DELETED, KEY_WAIT_MS, keySaved, maskKey, otherProviderKey } from '../src/owner/panel/key-input.ts'
 import { createPanel } from '../src/owner/panel/panel.ts'
 import { SETTING, keySetting } from '../src/store.ts'
 import { TelegramError } from '../src/telegram.ts'
@@ -258,8 +259,77 @@ test('ожидание ключа помнит провайдера: «Вста�
   await panel.tap('🔑 Ключ')
   const screen = await panel.tap('Вставить ключ')
   assert.ok(screen.html.includes('Пришлите ключ Groq одним сообщением'))
+  // Провайдера сменили после нажатия — ожидание всё равно про Groq, а не про нового.
+  ctx.store.setSetting(OWNER_ID, SETTING.provider, 'openrouter')
   await createPanel(ctx.deps).onText(OWNER_ID, { text: 'привет', messageId: 1 })
   // Новая панель — новое ожидание: старое осталось в той, где нажали «Вставить ключ».
   await panel.panel.onText(OWNER_ID, { text: 'привет', messageId: 2 })
   assert.match(ctx.tg.callsOf('sendText').at(-1)!.text, /^Это не похоже на ключ Groq — он начинается с gsk_\./)
+})
+
+test('спека: прислали ключ другого провайдера — удалён, укрыт, не сохранён, ожидание продолжается', async () => {
+  const ctx = await keyFlow()
+  await ctx.press('p:key:paste')
+  const other = `sk-${'aB3'.repeat(11).slice(0, 32)}`
+  const message = ownerText(other)
+  await ctx.app.handleUpdate(message)
+  assert.deepEqual(ctx.tg.callsOf('deleteMessage'), [{ method: 'deleteMessage', chatId: OWNER_ID, messageId: message.message!.message_id }])
+  assert.equal(ctx.store.getSetting(OWNER_ID, keySetting('openrouter')), undefined)
+  assert.equal(ctx.store.getSetting(OWNER_ID, keySetting('deepseek')), undefined)
+  assert.ok(ctx.secrets.includes(other))
+  assert.equal(ctx.tg.callsOf('sendText').at(-1)!.text, otherProviderKey(getProvider('openrouter')))
+  assert.equal(
+    otherProviderKey(getProvider('openrouter')),
+    'Это ключ другого провайдера — сообщение удалено, ключ не сохранён. Пришлите ключ OpenRouter или смените провайдера: 🤖 Модель → Сменить провайдера.',
+  )
+  assert.equal(ctx.accounts.calls.verify.length, 0)
+  await ctx.app.handleUpdate(ownerText(KEY))
+  assert.equal(ctx.store.getSetting(OWNER_ID, keySetting('openrouter')), KEY)
+})
+
+test('ключ другого провайдера, сообщение не удалилось — просьба удалить самому', async () => {
+  const ctx = await keyFlow()
+  await ctx.press('p:key:paste')
+  ctx.tg.failNext('deleteMessage', new TelegramError(400, "Bad Request: message can't be deleted"))
+  await ctx.app.handleUpdate(ownerText(`gsk_${'x9'.repeat(25)}`))
+  assert.ok(ctx.tg.callsOf('sendText').some((call) => call.text === KEY_NOT_DELETED))
+  assert.equal(ctx.tg.callsOf('sendText').at(-1)!.text, otherProviderKey(getProvider('openrouter')))
+})
+
+test('старая кнопка «Вставить ключ» после переезда ключа в .env не начинает ожидание', async () => {
+  const ctx = await keyFlow({ envKeys: { OPENROUTER_API_KEY: 'sk-or-v1-' + 'f'.repeat(64) } })
+  await ctx.press('p:key:paste')
+  await ctx.app.handleUpdate(ownerText(KEY))
+  assert.equal(ctx.store.getSetting(OWNER_ID, keySetting('openrouter')), undefined)
+  assert.equal(ctx.tg.callsOf('sendText').at(-1)!.text, KEY_GUARD)
+})
+
+test('maskKey: известные префиксы остаются, чужое слово — нет', () => {
+  assert.equal(maskKey('mysupersecretpass_9f3k'), '…9f3k')
+  assert.equal(maskKey(KEY), 'sk-or-v1-…3210')
+  assert.equal(maskKey(`gsk_${'x9'.repeat(25)}`), 'gsk_…x9x9')
+  assert.equal(maskKey(`sk-${'a'.repeat(40)}`), 'sk-…aaaa')
+})
+
+test('keySaved: «ключ бессрочный»', () => {
+  const text = keySaved(KEY, { remaining: 6.53, expiresAt: null } as Parameters<typeof keySaved>[1])
+  assert.ok(text.endsWith('Осталось $6,53, ключ бессрочный.'))
+})
+
+test('порядок защиты: ключ укрыт и сообщение удалено до проверки; целиком в Telegram не уходит', async () => {
+  for (const verdict of ['ok', 'rejected'] as const) {
+    const ctx = await keyFlow()
+    ctx.accounts.state.verify = verdict === 'ok' ? { verdict: 'ok', balance: null } : { verdict: 'rejected' }
+    const seen: { secrets: number; deleted: number }[] = []
+    const real = ctx.accounts.accounts.verify
+    ctx.accounts.accounts.verify = async (...args) => {
+      seen.push({ secrets: ctx.secrets.length, deleted: ctx.tg.callsOf('deleteMessage').length })
+      return real(...args)
+    }
+    await ctx.press('p:key:paste')
+    const before = ctx.secrets.length
+    await ctx.app.handleUpdate(ownerText(KEY))
+    assert.deepEqual(seen, [{ secrets: before + 1, deleted: 1 }], verdict)
+    assert.ok(!JSON.stringify(ctx.tg.calls).includes(KEY), verdict)
+  }
 })
