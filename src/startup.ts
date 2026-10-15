@@ -1,31 +1,95 @@
 import type { Alerts } from './alerts.ts'
-import type { BotInfo, TelegramApi } from './telegram.ts'
+import { describeError, type BotCommand, type BotInfo, type TelegramApi } from './telegram.ts'
 
-export const BUSINESS_MODE_OFF =
-  'В BotFather выключен Business Mode — без него бот не видит вашу личку. ' +
-  'Откройте @BotFather → /mybots → этот бот → Bot Settings → Business Mode → Turn on.'
+/**
+ * Настройка BotFather, без которой что-то не работает. Включить её программой нельзя — только
+ * руками, поэтому бот говорит, что выключено, зачем оно и где включить.
+ * what — что не так, why — что из-за этого не работает, fix — путь в мини-приложении BotFather.
+ */
+export type BotFatherCheck = {
+  key: string
+  ok: (me: BotInfo) => boolean
+  what: string
+  why: string
+  fix: string
+}
 
-export const TOPICS_OFF =
-  'В BotFather выключен Threaded Mode — без него бот не может завести темы для собеседников. ' +
-  'Откройте @BotFather → /mybots → этот бот → Bot Settings → Threaded Mode → Turn on.'
+// Пути — через мини-приложение BotFather (живая проверка 2026-10-14): /mybots и «Turn on»
+// там больше нет, вместо них Open и переключатели. Business Mode там называется Secretary Mode.
+const SECRETARY: BotFatherCheck = {
+  key: 'botfather:business',
+  ok: (me) => me.canConnectToBusiness,
+  what: 'выключен Secretary Mode (раньше назывался Business Mode)',
+  why: 'без него бот не видит вашу личку',
+  fix: 'Откройте @BotFather → Open → этот бот → Bot Settings и включите переключатель Secretary Mode.',
+}
 
-export const INLINE_OFF =
-  'В BotFather выключен Inline Mode — без него не работает кнопка «Отправить через бота». ' +
-  'Откройте @BotFather → Open → этот бот → Bot Settings → Inline Mode и включите переключатель.'
+const THREADED: BotFatherCheck = {
+  key: 'botfather:topics',
+  ok: (me) => me.hasTopicsEnabled,
+  what: 'выключен Threaded Mode',
+  why: 'без него бот не может завести темы для собеседников',
+  fix: 'Откройте @BotFather → Open → этот бот → Bot Settings и включите переключатель Threaded Mode.',
+}
+
+const USER_TOPICS: BotFatherCheck = {
+  key: 'botfather:user-topics',
+  ok: (me) => !me.allowsUsersToCreateTopics,
+  what: 'пользователям разрешено создавать темы',
+  why: 'так в чате с ботом можно завести тему, которую бот не узнает',
+  fix: 'Откройте @BotFather → Open → этот бот → Bot Settings и выключите создание тем пользователями.',
+}
+
+const INLINE: BotFatherCheck = {
+  key: 'botfather:inline',
+  ok: (me) => me.supportsInlineQueries,
+  what: 'выключен Inline Mode',
+  why: 'без него не работает кнопка «Отправить через бота»',
+  fix: 'Откройте @BotFather → Open → этот бот → Bot Settings → Inline Mode и включите переключатель.',
+}
+
+/** Реестр проверок BotFather: новая настройка — новая строка, старт и панель её подхватят. */
+export const BOTFATHER_CHECKS: readonly BotFatherCheck[] = [SECRETARY, THREADED, USER_TOPICS, INLINE]
+
+/** Полный текст проблемы: «В BotFather выключен … — без него … . Откройте …». */
+export function botfatherText(check: BotFatherCheck): string {
+  return `В BotFather ${check.what} — ${check.why}. ${check.fix}`
+}
+
+export const BUSINESS_MODE_OFF = botfatherText(SECRETARY)
+export const TOPICS_OFF = botfatherText(THREADED)
+export const USER_TOPICS_ON = botfatherText(USER_TOPICS)
+export const INLINE_OFF = botfatherText(INLINE)
+
+/** Меню команд: одна команда, она же панель. */
+export const BOT_COMMANDS: readonly BotCommand[] = [{ command: 'start', description: 'Настройки и статус' }]
+
+/** Меню команд при старте. Без меню бот работает — отказ Telegram только в консоль. */
+export async function setupCommands(api: TelegramApi, log: (text: string) => void): Promise<void> {
+  try {
+    await api.setCommands(BOT_COMMANDS)
+  } catch (error) {
+    log(`меню команд не задано: ${describeError(error)}`)
+  }
+}
 
 /** Как часто переспрашивать Telegram, пока Inline Mode выключен: владелец мог включить его в BotFather. */
 export const INLINE_RECHECK_MS = 60 * 1000
 
+/** Проверка Inline Mode; update — свежий ответ getMe, например из панели. */
+export type InlineCheck = (() => Promise<boolean>) & { update(enabled: boolean): void }
+
 /**
  * Включён ли Inline Mode. Включённый не перепроверяем. Выключенный переспрашиваем у Telegram,
  * но не чаще раза в минуту: так включение в BotFather бот замечает без перезапуска, а
- * лишних запросов на каждый перевод нет.
+ * лишних запросов на каждый перевод нет. Выключение после старта бот узнаёт из update — его
+ * зовёт панель, которая спрашивает getMe при каждом показе главного экрана.
  */
-export function createInlineCheck(deps: { api: TelegramApi; initial: boolean; now: () => number }): () => Promise<boolean> {
+export function createInlineCheck(deps: { api: TelegramApi; initial: boolean; now: () => number }): InlineCheck {
   let enabled = deps.initial
   // Стартовый getMe только что был — первый повтор не раньше чем через минуту.
   let checkedAt = deps.now()
-  return async () => {
+  const check = async () => {
     if (enabled) return true
     if (deps.now() - checkedAt < INLINE_RECHECK_MS) return false
     checkedAt = deps.now()
@@ -36,11 +100,17 @@ export function createInlineCheck(deps: { api: TelegramApi; initial: boolean; no
     }
     return enabled
   }
+  return Object.assign(check, {
+    update(value: boolean) {
+      enabled = value
+      checkedAt = deps.now()
+    },
+  })
 }
 
 /**
- * Проверки при старте: всё, без чего этот шаг не работает, владелец узнаёт сразу
- * и понятным текстом, а не по молчанию бота. Полная самопроверка с панелью — позже.
+ * Проверки при старте: всё, без чего бот не работает, владелец узнаёт сразу и понятным
+ * текстом, а не по молчанию бота. Те же проверки BotFather показывает панель.
  */
 export async function startupChecks(input: {
   me: BotInfo
@@ -49,9 +119,9 @@ export async function startupChecks(input: {
   modelProblem: string | null
 }): Promise<void> {
   const { me, alerts } = input
-  if (!me.canConnectToBusiness) await alerts.general('botfather:business', BUSINESS_MODE_OFF)
-  if (!me.hasTopicsEnabled) await alerts.general('botfather:topics', TOPICS_OFF)
-  if (!me.supportsInlineQueries) await alerts.general('botfather:inline', INLINE_OFF)
+  for (const check of BOTFATHER_CHECKS) {
+    if (!check.ok(me)) await alerts.general(check.key, botfatherText(check))
+  }
   if (input.languagesProblem) await alerts.general('languages', input.languagesProblem)
   if (input.modelProblem) await alerts.general('model', input.modelProblem)
 }

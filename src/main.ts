@@ -4,7 +4,7 @@ import { ALLOWED_UPDATES, createApp } from './app.ts'
 import { loadEnv } from './env.ts'
 import { createTopics } from './owner/topics.ts'
 import { FIRST_RUN_DEFAULTS, createConfig } from './settings.ts'
-import { createInlineCheck, startupChecks } from './startup.ts'
+import { createInlineCheck, setupCommands, startupChecks } from './startup.ts'
 import { HOUR, openStore } from './store.ts'
 import { createTelegramApi, describeError } from './telegram.ts'
 import { reviewTranslation } from './translate/check.ts'
@@ -50,6 +50,7 @@ await startupChecks({
   languagesProblem: initial.languagesProblem,
   modelProblem: initial.translatorProblem,
 })
+await setupCommands(api, alerts.log)
 
 const app = createApp({
   api,

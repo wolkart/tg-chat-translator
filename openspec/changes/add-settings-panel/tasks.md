@@ -22,8 +22,8 @@
   - `isNotModified(error)` — узнаёт ответ «message is not modified».
 
   Подделка в `test/fakes.ts` записывает клавиатуру и команды. Проверка: тесты — `editText` без `opts` ведёт себя как раньше, с клавиатурой — передаёт `reply_markup` и `parse_mode`; `isNotModified` узнаёт описание Telegram и не узнаёт другие ошибки.
-- [ ] 3.2 Таблица `BOTFATHER_CHECKS` (design, решение 4): Secretary Mode, Threaded Mode, запрет создавать темы, Inline Mode — с текстами из спеки `settings-panel`. `startupChecks` идёт по таблице. У `createInlineCheck` появляется `update(enabled)`. Проверка: тесты — по сценарию на каждую из четырёх проблем при старте с точным текстом; после `update(false)` `inlineEnabled()` возвращает `false` (сценарий «Владелец выключил Inline Mode после старта»); старые тесты Inline Mode зелёные.
-- [ ] 3.3 `main.ts` при старте задаёт команды: `/start` — «Настройки и статус». Если Telegram отказал — строка в консоль, бот работает дальше. Проверка: тест — подделка получила одну команду `start` с этой подписью, а сбой `setCommands` не роняет запуск.
+- [x] 3.2 Таблица `BOTFATHER_CHECKS` (design, решение 4): Secretary Mode, Threaded Mode, запрет создавать темы, Inline Mode — с текстами из спеки `settings-panel`. `startupChecks` идёт по таблице. У `createInlineCheck` появляется `update(enabled)`. Проверка: тесты — по сценарию на каждую из четырёх проблем при старте с точным текстом; после `update(false)` `inlineEnabled()` возвращает `false` (сценарий «Владелец выключил Inline Mode после старта»); старые тесты Inline Mode зелёные.
+- [x] 3.3 `main.ts` при старте задаёт команды: `/start` — «Настройки и статус». Если Telegram отказал — строка в консоль, бот работает дальше. Проверка: тест — подделка получила одну команду `start` с этой подписью, а сбой `setCommands` не роняет запуск.
 
 ## 4. Счёт OpenRouter
 
