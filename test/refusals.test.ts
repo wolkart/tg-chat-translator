@@ -6,7 +6,7 @@ import { TelegramError } from '../src/telegram.ts'
 test('отказы подключения узнаются по коду и называют собеседника', () => {
   const usage = refusalText(new TelegramError(400, 'Bad Request: BUSINESS_PEER_USAGE_MISSING'), 'Maria')
   assert.match(usage, /^от Maria давно не было сообщений/)
-  assert.match(usage, /Когда Maria ответит, бот снова будет отправлять сам\.$/)
+  assert.match(usage, /Отправьте перевод сами — кнопками ниже: после этого бот снова будет отправлять сам\.$/)
   assert.match(refusalText(new TelegramError(400, 'Bad Request: BUSINESS_PEER_INVALID'), 'Maria'), /^бот не видит чат с Maria/)
 })
 
