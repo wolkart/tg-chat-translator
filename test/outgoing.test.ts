@@ -369,3 +369,9 @@ test('имя собеседника с «<» и «&» в причине «Не �
   const notice = tg.callsOf('sendText').at(-1)!
   assert.match(notice.text, /^<b>Не отправлено:<\/b> от Tom &amp; &lt;b&gt;Jerry&lt;\/b&gt; давно не было сообщений/)
 })
+
+test('спека: обращение «Деловое, на вы» — ответ владельца уходит модели с formal', async () => {
+  const { deps, translator, conversation } = prepared({ overrides: { address: 'formal' } })
+  await sendOwnerReply(deps, conversation, reply, { outsideTopic: false })
+  assert.equal(translator.calls[0]!.address, 'formal')
+})

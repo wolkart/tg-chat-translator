@@ -234,3 +234,9 @@ test('другая ошибка ответа на inline-запрос пробр
   tg.failNext('answerInline', new TelegramError(500, 'Internal Server Error'))
   await assert.rejects(answerInline(deps, { id: 'Q', query: '5' }), /Internal Server Error/)
 })
+
+test('спека: написать первым при деловом обращении — перевод тоже на «вы»', async () => {
+  const { deps, translator } = setupDeps({ overrides: { address: 'formal' } })
+  await newPeerDraft(deps, hello)
+  assert.equal(translator.calls[0]!.address, 'formal')
+})

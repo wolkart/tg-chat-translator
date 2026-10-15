@@ -136,7 +136,8 @@ export function incomingSteps(deps: Deps, config: Config): Step<Replica>[] {
         }
         const history = deps.store.recentReplicas(replica.conversation!.id)
         try {
-          replica.translation = await config.translator({ target: languages.owner, history, text: replica.text })
+          // Входящее — как написал собеседник: деловое обращение касается только ответов владельца.
+          replica.translation = await config.translator({ target: languages.owner, history, text: replica.text, address: 'as-is' })
         } catch (error) {
           replica.translationError = describeError(error)
           // Пометка в теме — у каждого сообщения, а общее сообщение говорит, что сломано и что

@@ -507,3 +507,10 @@ test('сообщение в чат без разговора и не через 
   await onBusinessMessage(deps, { ...messageFixture('business-message-owner-direct'), text: 'Привет, как дела?' })
   assert.equal(lookups, 0)
 })
+
+test('спека: обращение «Деловое, на вы» — входящее всё равно переводится как есть', async () => {
+  const { deps, translator, connectOwner } = setupDeps({ overrides: { address: 'formal' } })
+  connectOwner()
+  await onBusinessMessage(deps, messageFixture('business-message-peer-text'))
+  assert.equal(translator.calls[0]!.address, 'as-is')
+})

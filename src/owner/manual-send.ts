@@ -119,7 +119,7 @@ export async function newPeerDraft(deps: Deps, payload: OwnerPayload): Promise<v
 
   let translation: string
   try {
-    translation = await config.translator({ target: languages.peer, history: [], text: payload.text })
+    translation = await config.translator({ target: languages.peer, history: [], text: payload.text, address: config.address })
   } catch (error) {
     await alertModelFailure(deps.alerts, error)
     await reply(deps, payload.sourceMessageId, renderDraftFailed(describeError(error)))

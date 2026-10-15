@@ -10,7 +10,7 @@
 ## 2. Модели, обращение и подсказки к ошибкам
 
 - [x] 2.1 `Provider.models` — `{ id, title, note? }[]`. Список OpenRouter — по требованию «Модели OpenRouter» спеки `translation`, пометки — по design, решение 10. `PROVIDER_DEFAULTS`, `resolveModel` и `scripts/eval-injection.ts` работают с `id`. Проверка: тест «Новая установка» — первая модель `anthropic/claude-haiku-5.5`, порядок четырёх моделей как в спеке, `google/gemini-2.5-flash` в списке нет. `npm run typecheck` чистый, вместе со `scripts/`.
-- [ ] 2.2 `PromptFragment` получает весь запрос и может вернуть `null`. `TranslateRequest.address` и `ADDRESS_FRAGMENT` (design, решение 9). `sendOwnerReply` и `newPeerDraft` передают `config.address`, входящее — `as-is`. Проверка: тесты — фрагмент есть в промпте только при `formal`, напоминание об изоляции последнее; у входящего `address: 'as-is'` при любой настройке; «Написать первым» при `formal` передаёт `formal`.
+- [x] 2.2 `PromptFragment` получает весь запрос и может вернуть `null`. `TranslateRequest.address` и `ADDRESS_FRAGMENT` (design, решение 9). `sendOwnerReply` и `newPeerDraft` передают `config.address`, входящее — `as-is`. Проверка: тесты — фрагмент есть в промпте только при `formal`, напоминание об изоляции последнее; у входящего `address: 'as-is'` при любой настройке; «Написать первым» при `formal` передаёт `formal`.
 - [x] 2.3 `describeProviderError` получает источник ключа: при 401 и ключе из панели — «Вставьте ключ заново: /start → 🔑 Ключ. Ключ берут здесь: <keysUrl>», из `.env` — как раньше. Проверка: тесты на сценарии «Неверный ключ» и «Неверный ключ из .env» спеки `owner-alerts`. «User not found» нигде в текстах владельцу нет.
 
 ## 3. Обёртка Telegram и самопроверка BotFather

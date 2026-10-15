@@ -77,7 +77,7 @@ export async function sendOwnerReply(
     }
     const history = deps.store.recentReplicas(conversation.id)
     try {
-      translation = await config.translator({ target: config.languages.peer, history, text: payload.text })
+      translation = await config.translator({ target: config.languages.peer, history, text: payload.text, address: config.address })
     } catch (error) {
       const reason = describeError(error)
       await alertModelFailure(deps.alerts, error)
