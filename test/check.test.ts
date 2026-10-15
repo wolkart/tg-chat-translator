@@ -215,3 +215,36 @@ test('первое сработавшее правило решает; ново�
   assert.deepEqual(review, { verdict: 'numbers', rule: 'всегда', commands: false })
   assert.equal(createReviewer([always, ...OUTPUT_CHECKS])(incoming('long text here please', 'OK')).rule, 'всегда')
 })
+
+// Живой случай 2026-10-15: на «ок» при «Деловое, на вы» модель выдала объяснение, и оно ушло собеседнику.
+const LIVE_EXPLANATION = 'Ok, in the business-like polite form: "ок" is a simple acknowledgment. Translation: "OK"\n\nOK'
+
+test('пояснение модели: живой образец вместо перевода «ок» — не перевод', () => {
+  const review = reviewTranslation(outgoing('ок', LIVE_EXPLANATION, getProfile('de')!))
+  assert.equal(review.verdict, 'not-translation')
+  assert.equal(review.rule, 'пояснение модели')
+})
+
+test('пояснение модели: примечание отдельным абзацем перед переводом — не перевод', () => {
+  const review = reviewTranslation(
+    outgoing('ты где? я уже на месте', 'Formal "Sie" required in German.\n\nWo sind Sie? Ich bin schon vor Ort.', getProfile('de')!),
+  )
+  assert.equal(review.verdict, 'not-translation')
+  assert.equal(review.rule, 'пояснение модели')
+})
+
+test('пояснение модели: «Translation:» написал сам собеседник — перевод проходит', () => {
+  const review = reviewTranslation(incoming('Translation: see the attached file', 'Перевод: см. приложенный файл'))
+  assert.equal(review.verdict, 'ok')
+})
+
+test('пояснение модели: два абзаца в оригинале и в переводе — проходит', () => {
+  const review = reviewTranslation(
+    outgoing('Привет!\n\nЗавтра буду на месте в десять.', 'Hello!\n\nTomorrow I will be there at ten.'),
+  )
+  assert.equal(review.verdict, 'ok')
+})
+
+test('пояснение модели: обычный перевод в одну строку — проходит', () => {
+  assert.equal(reviewTranslation(outgoing('Ок, до завтра', 'Ok, see you tomorrow')).verdict, 'ok')
+})

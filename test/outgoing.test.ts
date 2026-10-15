@@ -375,3 +375,11 @@ test('спека: обращение «Деловое, на вы» — отве�
   await sendOwnerReply(deps, conversation, reply, { outsideTopic: false })
   assert.equal(translator.calls[0]!.address, 'formal')
 })
+
+test('спека: модель вместо перевода «ок» выдала объяснение — не уходит, в теме причина и текст модели', async () => {
+  const explanation = 'Ok, in the business-like polite form: "ок" is a simple acknowledgment. Translation: "OK"\n\nOK'
+  const { deps, tg, conversation } = guarded({ ок: explanation })
+  assert.equal(await sendOwnerReply(deps, conversation, ownerSays('ок'), { outsideTopic: true }), false)
+  assert.equal(tg.sentAsOwner().length, 0)
+  assert.equal(tg.callsOf('sendText').at(-1)!.text, `<b>Не отправлено:</b> перевод выглядит подозрительно\nПеревод:\n${explanation}`)
+})

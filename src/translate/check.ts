@@ -92,6 +92,10 @@ export const REFUSALS: readonly RegExp[] = [
   /\bcomo (?:ia|modelo de lenguaje|asistente de ia),/iu,
 ]
 
+const LABEL =
+  /(?<!\p{L})(?:translation|translated|original|перевод|оригинал|übersetzung|traducción|traduction|traduzione)\s*:/iu
+const paragraphBreaks = (text: string) => text.match(/\n\s*\n/g)?.length ?? 0
+
 const weightOf = (input: ReviewInput) => textWeight(input.original)
 const ratio = (input: ReviewInput) => textWeight(input.translation) / textWeight(input.original)
 
@@ -142,6 +146,17 @@ export const OUTPUT_CHECKS: readonly OutputCheck[] = [
     name: 'отказ модели',
     verdict: 'not-translation',
     failed: (input) => matchesAny(REFUSALS, input.translation) && !matchesAny(REFUSALS, input.original),
+  },
+  {
+    // Живой случай 2026-10-15: на «ок» при деловом обращении модель выдала «Ok, in the
+    // business-like polite form… Translation: "OK"», и это ушло собеседнику. Признаки — метка
+    // «Translation:» и лишние абзацы (пояснение отделяется пустой строкой). Сравниваем с
+    // оригиналом: собеседник сам мог написать «Translation: …» или разбить текст на абзацы.
+    name: 'пояснение модели',
+    verdict: 'not-translation',
+    failed: (input) =>
+      (LABEL.test(input.translation) && !LABEL.test(input.original)) ||
+      paragraphBreaks(input.translation) > paragraphBreaks(input.original),
   },
   {
     // Последним: если ответ вообще не перевод, владельцу важнее это, а не числа. Только во
