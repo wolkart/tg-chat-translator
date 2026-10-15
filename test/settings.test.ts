@@ -2,7 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { sendOwnerReply } from '../src/channels/private-chat/outgoing.ts'
 import { FIRST_RUN_DEFAULTS, createConfig } from '../src/settings.ts'
-import { SETTING, openStore } from '../src/store.ts'
+import { SETTING, keySetting, openStore } from '../src/store.ts'
+import { TranslationError } from '../src/translate/errors.ts'
 import { CONNECTION_ID, OWNER_ID, PEER_ID } from './helpers.ts'
 import { setupDeps } from './setup.ts'
 
@@ -65,5 +66,21 @@ test('настройки: другой владелец — свои настр�
   const config = createConfig({ store, env: { providerKeys: {} } })
   assert.equal(config(OWNER_ID).languages?.peer.code, 'en')
   assert.equal(config(OWNER_ID + 1).languages?.peer.code, 'de')
+  store.close()
+})
+
+test('спека: неверный ключ из панели — подсказка ведёт в панель', async () => {
+  const store = openStore(':memory:')
+  store.ensureDefaults(OWNER_ID, FIRST_RUN_DEFAULTS)
+  store.setSetting(OWNER_ID, keySetting('openrouter'), 'sk-or-v1-from-panel')
+  const fetchImpl = (async () =>
+    new Response(JSON.stringify({ error: { message: 'User not found.', code: 401 } }), { status: 401 })) as typeof fetch
+  const config = createConfig({ store, env: { providerKeys: {} }, fetchImpl })(OWNER_ID)
+  assert.equal(config.model.ok && config.model.keySource, 'panel')
+  await assert.rejects(config.translator!({ target: config.languages!.owner, history: [], text: 'hi' }), (error: unknown) => {
+    assert.ok(error instanceof TranslationError)
+    assert.equal(error.hint, 'Вставьте ключ заново: /start → 🔑 Ключ. Ключ берут здесь: https://openrouter.ai/keys')
+    return true
+  })
   store.close()
 })

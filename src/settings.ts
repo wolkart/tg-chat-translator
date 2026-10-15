@@ -23,8 +23,14 @@ export type ConfigEnv = { providerKeys: Record<string, string>; localBaseUrl?: s
 
 type ReadyModel = Extract<ResolvedModel, { ok: true }>
 
-function defaultTranslator(model: ReadyModel): Translator {
-  return createTranslator({ baseUrl: model.baseUrl, apiKey: model.apiKey, model: model.model, provider: model.provider })
+function realTranslator(model: ReadyModel, fetchImpl?: typeof fetch): Translator {
+  return createTranslator({
+    baseUrl: model.baseUrl,
+    apiKey: model.apiKey,
+    model: model.model,
+    provider: { ...model.provider, keySource: model.keySource },
+    ...(fetchImpl && { fetchImpl }),
+  })
 }
 
 /**
@@ -36,10 +42,11 @@ function defaultTranslator(model: ReadyModel): Translator {
 export function createConfig(deps: {
   store: Store
   env: ConfigEnv
-  /** Подмена в тестах: модель и сеть там не вызываются */
+  /** Подмены в тестах: модель и сеть там не вызываются */
   makeTranslator?: (model: ReadyModel) => Translator
+  fetchImpl?: typeof fetch
 }): (ownerId: number) => Config {
-  const makeTranslator = deps.makeTranslator ?? defaultTranslator
+  const makeTranslator = deps.makeTranslator ?? ((model: ReadyModel) => realTranslator(model, deps.fetchImpl))
   return (ownerId) => {
     const get = (key: string) => deps.store.getSetting(ownerId, key)
     const pair = resolvePair(

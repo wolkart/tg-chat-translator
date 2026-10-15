@@ -36,7 +36,7 @@ export function statusText(deps: Deps): string {
   const languages = config.languages
     ? `${config.languages.owner.nameRu} ↔ ${config.languages.peer.nameRu}`
     : (config.languagesProblem ?? 'не настроены')
-  const model = config.model.ok ? `${config.model.provider.label} · ${config.model.model}` : config.model.problem
+  const model = config.model.ok ? `${config.model.provider.label} · ${config.model.title}` : config.model.problem
   return [
     'Статус переводчика',
     `• Подключение к аккаунту: ${connectionLine(connection)}`,

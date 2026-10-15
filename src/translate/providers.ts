@@ -5,6 +5,9 @@ import { SETTING } from '../store.ts'
  * поэтому новый провайдер = новая строка в таблице, кода не нужно.
  * Перенесено из news-reposter; модели подобраны под перевод.
  */
+/** Модель в панели: id уходит провайдеру, название и пометку видит владелец. */
+export type ModelInfo = { id: string; title: string; note?: string }
+
 export type Provider = {
   id: string
   label: string
@@ -14,7 +17,7 @@ export type Provider = {
   /** Куда человек идёт за ключом */
   keysUrl: string
   /** Первая — по умолчанию */
-  models: string[]
+  models: ModelInfo[]
 }
 
 export const PROVIDERS: Provider[] = [
@@ -25,8 +28,16 @@ export const PROVIDERS: Provider[] = [
     envKey: 'OPENROUTER_API_KEY',
     keysUrl: 'https://openrouter.ai/keys',
     // Первая — дефолт новой установки: замер 2026-10-12 (scripts/eval-injection.ts) — лучшая
-    // стойкость к подмене (62 из 63) и в 4 раза дешевле gpt-4.1-mini.
-    models: ['anthropic/claude-haiku-5.5', 'openai/gpt-4.1-mini', 'google/gemini-2.5-flash', 'anthropic/claude-sonnet-5', 'deepseek/deepseek-chat'],
+    // стойкость к подмене (62 из 63) и в 4 раза дешевле gpt-4.1-mini. GPT-5.6 Luna (59) и
+    // Gemini 3.1 Flash Lite (60) — из того же замера. gemini-2.5-flash OpenRouter убирает
+    // 2026-10-20, claude-sonnet-5 для перевода дорог (в 20 раз дороже Haiku), gpt-4.1-mini
+    // хуже и дороже новых — их в списке нет. Новый замер на этом списке — шаг 6.
+    models: [
+      { id: 'anthropic/claude-haiku-5.5', title: 'Claude Haiku 5.5', note: 'лучшая в нашем замере' },
+      { id: 'openai/gpt-5.6-luna', title: 'GPT-5.6 Luna', note: 'от OpenAI' },
+      { id: 'google/gemini-3.1-flash-lite', title: 'Gemini 3.1 Flash Lite', note: 'от Google' },
+      { id: 'deepseek/deepseek-v4-flash', title: 'DeepSeek V4 Flash', note: 'самая дешёвая' },
+    ],
   },
   {
     id: 'deepseek',
@@ -34,7 +45,7 @@ export const PROVIDERS: Provider[] = [
     baseUrl: 'https://api.deepseek.com/v1',
     envKey: 'DEEPSEEK_API_KEY',
     keysUrl: 'https://platform.deepseek.com/api_keys',
-    models: ['deepseek-chat'],
+    models: [{ id: 'deepseek-chat', title: 'DeepSeek Chat' }],
   },
   {
     id: 'moonshot',
@@ -42,7 +53,7 @@ export const PROVIDERS: Provider[] = [
     baseUrl: 'https://api.moonshot.ai/v1',
     envKey: 'MOONSHOT_API_KEY',
     keysUrl: 'https://platform.moonshot.ai/console/api-keys',
-    models: ['kimi-k2-0905-preview'],
+    models: [{ id: 'kimi-k2-0905-preview', title: 'Kimi K2' }],
   },
   {
     id: 'groq',
@@ -50,7 +61,7 @@ export const PROVIDERS: Provider[] = [
     baseUrl: 'https://api.groq.com/openai/v1',
     envKey: 'GROQ_API_KEY',
     keysUrl: 'https://console.groq.com/keys',
-    models: ['llama-3.3-70b-versatile'],
+    models: [{ id: 'llama-3.3-70b-versatile', title: 'Llama 3.3 70B' }],
   },
   {
     id: 'local',
@@ -58,14 +69,14 @@ export const PROVIDERS: Provider[] = [
     baseUrl: 'http://localhost:11434/v1',
     envKey: 'LOCAL_API_KEY',
     keysUrl: 'https://ollama.com',
-    models: ['qwen3:8b'],
+    models: [{ id: 'qwen3:8b', title: 'Qwen3 8B' }],
   },
 ]
 
 /** Дефолт первого запуска: первый провайдер и его первая модель. */
 export const PROVIDER_DEFAULTS: Record<string, string> = {
   [SETTING.provider]: PROVIDERS[0]!.id,
-  [SETTING.model]: PROVIDERS[0]!.models[0]!,
+  [SETTING.model]: PROVIDERS[0]!.models[0]!.id,
 }
 
 export function getProvider(id: string | undefined): Provider {
@@ -93,7 +104,17 @@ export function providerKey(
 }
 
 export type ResolvedModel =
-  | { ok: true; provider: Provider; model: string; apiKey: string; keySource: KeySource; baseUrl: string }
+  | {
+      ok: true
+      provider: Provider
+      /** id модели — его получает провайдер */
+      model: string
+      /** Название для владельца: «Claude Haiku 5.5» */
+      title: string
+      apiKey: string
+      keySource: KeySource
+      baseUrl: string
+    }
   | { ok: false; problem: string }
 
 /**
@@ -118,7 +139,8 @@ export function resolveModel(
     }
   }
 
-  const model = settings.model && provider.models.includes(settings.model) ? settings.model : provider.models[0]!
+  // Сохранённой модели нет в списке (убрали или сменился провайдер) — первая из списка.
+  const model = provider.models.find((candidate) => candidate.id === settings.model) ?? provider.models[0]!
   const baseUrl = provider.id === 'local' && env.localBaseUrl ? env.localBaseUrl : provider.baseUrl
-  return { ok: true, provider, model, apiKey: key.value, keySource: key.source, baseUrl }
+  return { ok: true, provider, model: model.id, title: model.title, apiKey: key.value, keySource: key.source, baseUrl }
 }

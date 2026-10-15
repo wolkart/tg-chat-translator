@@ -22,7 +22,7 @@ test('провайдер по умолчанию — первый в табли�
   const store = openStore(':memory:')
   store.ensureDefaults(1, { ...LANGUAGE_DEFAULTS, ...PROVIDER_DEFAULTS })
   assert.equal(store.getSetting(1, SETTING.provider), PROVIDERS[0]!.id)
-  assert.equal(store.getSetting(1, SETTING.model), PROVIDERS[0]!.models[0])
+  assert.equal(store.getSetting(1, SETTING.model), PROVIDERS[0]!.models[0]!.id)
 })
 
 test('ключ берётся из .env', () => {
@@ -32,13 +32,34 @@ test('ключ берётся из .env', () => {
   assert.equal(resolved.provider.id, 'openrouter')
   assert.equal(resolved.apiKey, 'sk-or-1')
   assert.equal(resolved.keySource, 'env')
-  assert.equal(resolved.model, PROVIDERS[0]!.models[0])
+  assert.equal(resolved.model, PROVIDERS[0]!.models[0]!.id)
 })
 
 test('у выбранного провайдера ключа нет — работает тот, чей ключ задан', () => {
   const resolved = resolveModel({ provider: 'openrouter' }, { providerKeys: { DEEPSEEK_API_KEY: 'sk-ds' } })
   assert.equal(resolved.ok, true)
   if (resolved.ok) assert.equal(resolved.provider.id, 'deepseek')
+})
+
+test('спека: новая установка — Claude Haiku 5.5, четыре модели OpenRouter по порядку', () => {
+  const store = openStore(':memory:')
+  store.ensureDefaults(1, { ...LANGUAGE_DEFAULTS, ...PROVIDER_DEFAULTS })
+  const resolved = resolveModel(
+    { provider: store.getSetting(1, SETTING.provider), model: store.getSetting(1, SETTING.model) },
+    { providerKeys: { OPENROUTER_API_KEY: 'sk-or-1' } },
+  )
+  assert.equal(resolved.ok && resolved.model, 'anthropic/claude-haiku-5.5')
+  assert.equal(resolved.ok && resolved.title, 'Claude Haiku 5.5')
+  assert.deepEqual(
+    PROVIDERS[0]!.models.map((model) => model.id),
+    ['anthropic/claude-haiku-5.5', 'openai/gpt-5.6-luna', 'google/gemini-3.1-flash-lite', 'deepseek/deepseek-v4-flash'],
+  )
+  assert.ok(!PROVIDERS.some((provider) => provider.models.some((model) => model.id === 'google/gemini-2.5-flash')))
+})
+
+test('спека: сохранённой модели больше нет в списке — первая модель списка', () => {
+  const resolved = resolveModel({ provider: 'openrouter', model: 'google/gemini-2.5-flash' }, { providerKeys: { OPENROUTER_API_KEY: 'k' } })
+  assert.equal(resolved.ok && resolved.model, 'anthropic/claude-haiku-5.5')
 })
 
 test('чужая модель из настроек заменяется первой моделью провайдера', () => {
@@ -266,6 +287,17 @@ async function failureOf(response: () => Response | Promise<Response>): Promise<
   }
   return assert.fail('перевод должен был не удаться')
 }
+
+test('спека: 401, ключ вставлен в панели — вставить заново через /start', async () => {
+  const fetchImpl = (async () => jsonResponse({ error: { message: 'User not found.', code: 401 } }, 401)) as typeof fetch
+  const translate = createTranslator({ ...config, provider: { ...openrouter, keySource: 'panel' }, fetchImpl })
+  await assert.rejects(translate({ target: ru, history: [], text: 'hi' }), (error: unknown) => {
+    assert.ok(error instanceof TranslationError)
+    assert.equal(error.message, 'OpenRouter: ключ не подходит')
+    assert.equal(error.hint, 'Вставьте ключ заново: /start → 🔑 Ключ. Ключ берут здесь: https://openrouter.ai/keys')
+    return true
+  })
+})
 
 test('спека: 401 — «ключ не подходит» и где взять ключ, сырого ответа в тексте нет', async () => {
   const error = await failureOf(() => jsonResponse({ error: { message: 'User not found.', code: 401 } }, 401))

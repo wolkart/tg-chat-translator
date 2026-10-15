@@ -1,4 +1,4 @@
-import type { Provider } from './providers.ts'
+import type { KeySource, Provider } from './providers.ts'
 
 /** Перевод не удался — текст сообщения показывается владельцу как причина. */
 export class TranslationError extends Error {
@@ -15,8 +15,11 @@ export class TranslationError extends Error {
   }
 }
 
-/** Что о провайдере нужно тексту ошибки: имя, переменная с ключом и где ключ взять. */
-export type ProviderInfo = Pick<Provider, 'label' | 'envKey' | 'keysUrl'>
+/**
+ * Что о провайдере нужно тексту ошибки: имя, переменная с ключом, где ключ взять и откуда
+ * взят этот ключ — подсказка ведёт туда, где его меняют.
+ */
+export type ProviderInfo = Pick<Provider, 'label' | 'envKey' | 'keysUrl'> & { keySource?: KeySource }
 
 /** Ошибка провайдера для владельца: что случилось и что сделать. */
 type ProviderErrorText = { reason: string; hint: string }
@@ -36,7 +39,13 @@ export const DEFAULT_HINT = 'Проверьте ключ и баланс у пр
 const PROVIDER_ERRORS: readonly ErrorRow[] = [
   {
     match: (status) => status === 401,
-    text: (p) => ({ reason: `${p.label}: ключ не подходит`, hint: `Проверьте ${p.envKey} в .env — ключ берут здесь: ${p.keysUrl}` }),
+    text: (p) => ({
+      reason: `${p.label}: ключ не подходит`,
+      hint:
+        p.keySource === 'panel'
+          ? `Вставьте ключ заново: /start → 🔑 Ключ. Ключ берут здесь: ${p.keysUrl}`
+          : `Проверьте ${p.envKey} в .env — ключ берут здесь: ${p.keysUrl}`,
+    }),
   },
   {
     match: (status) => status === 402,

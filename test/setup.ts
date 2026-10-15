@@ -45,6 +45,7 @@ export const TEST_MODEL: Config['model'] = {
   ok: true,
   provider: PROVIDERS[0]!,
   model: 'anthropic/claude-haiku-5.5',
+  title: 'Claude Haiku 5.5',
   apiKey: TEST_KEY,
   keySource: 'env',
   baseUrl: PROVIDERS[0]!.baseUrl,

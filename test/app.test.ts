@@ -87,7 +87,7 @@ test('/start — статус без подключения', async () => {
   const status = tg.callsOf('sendText')[0]!.text
   assert.match(status, /Подключение к аккаунту: бот его ещё не видел/)
   assert.match(status, /Языки: русский ↔ английский/)
-  assert.match(status, /Модель: OpenRouter · anthropic\/claude-haiku-5\.5/)
+  assert.match(status, /Модель: OpenRouter · Claude Haiku 5\.5/)
 })
 
 test('спека: в статусе — как написать первым и точный путь к настройке', async () => {
