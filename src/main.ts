@@ -7,7 +7,9 @@ import { FIRST_RUN_DEFAULTS, createConfig } from './settings.ts'
 import { createInlineCheck, setupCommands, startupChecks } from './startup.ts'
 import { HOUR, openStore } from './store.ts'
 import { createTelegramApi, describeError } from './telegram.ts'
+import { createAccounts } from './translate/account.ts'
 import { reviewTranslation } from './translate/check.ts'
+import { PROVIDERS } from './translate/providers.ts'
 
 const result = loadEnv()
 if (!result.ok) {
@@ -52,6 +54,8 @@ await startupChecks({
 })
 await setupCommands(api, alerts.log)
 
+const inline = createInlineCheck({ api, initial: me.supportsInlineQueries, now })
+
 const app = createApp({
   api,
   store,
@@ -61,7 +65,9 @@ const app = createApp({
   botId: me.id,
   config,
   review: reviewTranslation,
-  inlineEnabled: createInlineCheck({ api, initial: me.supportsInlineQueries, now }),
+  inlineEnabled: inline,
+  onBotInfo: (info) => inline.update(info.supportsInlineQueries),
+  accounts: createAccounts(PROVIDERS, { fetchImpl: fetch, now }),
   dry,
   now,
 })

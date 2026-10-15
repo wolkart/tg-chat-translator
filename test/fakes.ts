@@ -9,6 +9,9 @@ import type {
   TelegramApi,
 } from '../src/telegram.ts'
 import type { MediaKind } from '../src/types.ts'
+import { readFileSync } from 'node:fs'
+import type { Accounts, Balance, KeyCheck, ModelPrice, ProviderAccount } from '../src/translate/account.ts'
+import { toPrices } from '../src/translate/openrouter.ts'
 
 export type Call =
   | { method: 'sendText'; chatId: number; text: string; opts: MediaOptions; id: number }
@@ -124,4 +127,52 @@ export function fakeTelegram(init: { connections?: BusinessConnectionInfo[]; me?
       )
     },
   }
+}
+
+/** Баланс как в живом ответе OpenRouter 2026-10-15: на счёте $6,53, до лимита ключа $9,80. */
+export const SAMPLE_BALANCE: Balance = {
+  remaining: 6.5286,
+  account: 6.5286,
+  accountHidden: false,
+  keyLeft: 9.8009,
+  spentToday: 0,
+  spentMonth: 0.1991,
+  expiresAt: Date.parse('2026-10-16T20:04:00.002Z'),
+}
+
+/** Цены из сохранённого ответа /models. */
+export function samplePrices(): Map<string, ModelPrice> {
+  const body = JSON.parse(readFileSync(new URL('./fixtures/openrouter-models.json', import.meta.url), 'utf8')) as { data: unknown }
+  return toPrices(body.data)
+}
+
+/**
+ * Подделка счетов провайдеров: счёт есть только у OpenRouter, как в настоящей таблице.
+ * state меняется тестом на ходу — так проверяется «🔄 Обновить» и устаревший снимок.
+ */
+export function fakeAccounts(init: { balance?: Balance | null; prices?: ReadonlyMap<string, ModelPrice> | null; verify?: KeyCheck } = {}) {
+  const state = {
+    balance: init.balance === undefined ? SAMPLE_BALANCE : init.balance,
+    prices: init.prices === undefined ? samplePrices() : init.prices,
+    verify: init.verify ?? ({ verdict: 'ok', balance: SAMPLE_BALANCE } as KeyCheck),
+  }
+  const calls = { balance: [] as string[], prices: 0, verify: [] as { provider: string; key: string }[] }
+  const account: ProviderAccount = {
+    async balance(key) {
+      calls.balance.push(key)
+      return state.balance
+    },
+    async prices() {
+      calls.prices++
+      return state.prices
+    },
+  }
+  const accounts: Accounts = {
+    async verify(provider, key) {
+      calls.verify.push({ provider: provider.id, key })
+      return state.verify
+    },
+    of: (provider) => (provider.id === 'openrouter' ? account : undefined),
+  }
+  return { accounts, state, calls }
 }
