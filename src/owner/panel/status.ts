@@ -38,6 +38,11 @@ function keyLine({ config, account }: PanelContext): StatusLine {
   if (!model.ok) return { text: '⚠️ Ключа модели нет — переводить нечем. Нажмите «🔑 Ключ».', fix: 'key' }
   const label = escapeHtml(model.provider.label)
   if (!account) return { text: `✅ Ключ ${label}: есть` }
+  if (account.rejected) {
+    // Ключ из .env панель не заменит: он главнее, и подсказка ведёт туда, где его меняют.
+    const how = model.keySource === 'env' ? `проверьте ${escapeHtml(model.provider.envKey)} в .env` : 'вставьте новый: нажмите «🔑 Ключ»'
+    return { text: `⚠️ Ключ ${label} не принят провайдером — ${how}.`, fix: 'key' }
+  }
   const balance = account.balance
   if (!balance || balance.remaining === null) return { text: `Ключ ${label}: есть, остаток сейчас не узнать` }
   const term = balance.expiresAt === null ? 'бессрочный' : `действует до ${dayMonth(balance.expiresAt)}`

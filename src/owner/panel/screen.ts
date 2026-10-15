@@ -1,25 +1,34 @@
 import type { Deps } from '../../deps.ts'
 import type { Config } from '../../settings.ts'
 import type { BotInfo, InlineButton } from '../../telegram.ts'
-import type { Balance, ModelPrice } from '../../translate/account.ts'
+import type { KeyState, ModelPrice } from '../../translate/account.ts'
 import type { Connection } from '../../types.ts'
 
 /** Экран панели: HTML (всё подставленное уже прошло escapeHtml) и кнопки. */
 export type Screen = { html: string; keyboard: InlineButton[][] }
 
-/** Счёт провайдера в момент показа: баланс и цены, каждое может быть не узнать. */
-export type AccountSnapshot = { balance: Balance | null; prices: ReadonlyMap<string, ModelPrice> | null }
+/**
+ * Счёт провайдера в момент показа: баланс и цены, каждое может быть не узнать. rejected —
+ * провайдер не принял ключ: остаток тоже не узнать, но чинить надо ключ, а не ждать связи.
+ */
+export type AccountSnapshot = KeyState & { prices: ReadonlyMap<string, ModelPrice> | null }
 
-/** Всё, что нужно экранам, собирается один раз на показ. */
+/**
+ * Всё, что нужно экранам, собирается один раз на показ. getMe и счёт — запросы наружу, и
+ * грузятся они только под экран, которому нужны (см. Section.needs).
+ */
 export type PanelContext = {
   ownerId: number
   config: Config
   connection: Connection | undefined
-  /** Свежий getMe; null — Telegram не ответил */
+  /** Свежий getMe — только для главного экрана; null — не спрашивали или Telegram не ответил */
   me: BotInfo | null
-  /** Счёт провайдера, который сейчас переводит; null — бот его не видит или ключа нет */
+  /**
+   * Счёт провайдера, который сейчас переводит, — для главного экрана и разделов с
+   * needs.account; null — не спрашивали, бот его не видит или ключа нет
+   */
   account: AccountSnapshot | null
-  /** Будет ли под переводом кнопка «Отправить через бота» */
+  /** Будет ли под переводом кнопка «Отправить через бота» — только для главного экрана */
   inline: boolean
   dry: boolean
   now: number
@@ -49,8 +58,17 @@ export type Section = {
   id: string
   /** Кнопка на главном экране */
   button: string
+  /**
+   * Нужен ли экрану раздела счёт провайдера. Это запрос к провайдеру до 10 секунд, а апдейты
+   * Telegram бот разбирает по одному: медленный провайдер на любом нажатии задержал бы и
+   * переводы. Поэтому счёт получают только разделы, которые его попросили.
+   */
+  needs?: { account?: boolean }
   render(ctx: PanelContext, env: SectionEnv): Screen
-  /** Нажатие внутри раздела: «p:<id>:<action>[:<arg>]» */
+  /**
+   * Нажатие внутри раздела: «p:<id>:<action>[:<arg>]». В ctx — только настройки: getMe и счёт
+   * грузятся после, под экран, который покажут.
+   */
   act?(ctx: PanelContext, env: SectionEnv, action: string, arg: string): Outcome | Promise<Outcome>
 }
 

@@ -152,15 +152,26 @@ export function samplePrices(): Map<string, ModelPrice> {
  */
 export function fakeAccounts(init: { balance?: Balance | null; prices?: ReadonlyMap<string, ModelPrice> | null; verify?: KeyCheck } = {}) {
   const state = {
+    /** null — провайдер не ответил */
     balance: init.balance === undefined ? SAMPLE_BALANCE : init.balance,
     prices: init.prices === undefined ? samplePrices() : init.prices,
+    /** Что ответит проверка ключа, вставленного в панели */
     verify: init.verify ?? ({ verdict: 'ok', balance: SAMPLE_BALANCE } as KeyCheck),
+    /** Сохранённый ключ провайдер больше не принимает (401) */
+    rejected: false,
   }
   const calls = { balance: [] as string[], prices: 0, verify: [] as { provider: string; key: string }[] }
   const account: ProviderAccount = {
+    // У настоящего счёта OpenRouter проверка ключа и баланс — одни и те же запросы /key и
+    // /credits, поэтому и здесь оба пишутся в calls.balance: тест считает запросы к провайдеру.
+    async verify(key) {
+      calls.balance.push(key)
+      if (state.rejected) return { verdict: 'rejected' }
+      return state.balance ? { verdict: 'ok', balance: state.balance } : { verdict: 'unknown', reason: 'нет связи с OpenRouter' }
+    },
     async balance(key) {
       calls.balance.push(key)
-      return state.balance
+      return state.rejected ? null : state.balance
     },
     async prices() {
       calls.prices++

@@ -1,5 +1,6 @@
 import { money } from '../../../format.ts'
 import { escapeHtml } from '../../../html.ts'
+import { switchProvider } from '../../../settings.ts'
 import { SETTING } from '../../../store.ts'
 import type { InlineButton } from '../../../telegram.ts'
 import { translationCost } from '../../../translate/cost.ts'
@@ -16,6 +17,9 @@ function activeProvider(ctx: PanelContext): Provider {
 function currentModel(ctx: PanelContext, provider: Provider): string {
   return ctx.config.model.ok ? ctx.config.model.model : provider.models[0]!.id
 }
+
+/** Кнопка модели устарела: провайдера сменили, или данные кнопки чужие. */
+const MODELS_CHANGED = 'Список моделей обновился — выберите ещё раз'
 
 /**
  * Провайдеры: у кого ключа нет — «🔑». Выбор провайдера без ключа не переключает сразу: бот
@@ -47,6 +51,7 @@ function providersScreen(ctx: PanelContext): Screen {
 export const MODEL: Section = {
   id: 'model',
   button: '🤖 Модель',
+  needs: { account: true },
 
   render(ctx) {
     const provider = activeProvider(ctx)
@@ -69,7 +74,7 @@ export const MODEL: Section = {
       return [
         {
           text: `${model.id === current ? '✅ ' : ''}${model.title}${cost}${price?.expiresAt ? ' ⚠️' : ''}`,
-          data: action('model', 'set', String(index)),
+          data: action('model', 'set', provider.id, String(index)),
         },
       ]
     })
@@ -85,9 +90,12 @@ export const MODEL: Section = {
 
     if (act === 'set') {
       // Номер, а не id: в id моделей бывают «:» и «/», а данные кнопки ограничены 64 байтами.
+      // Рядом — id провайдера: старая кнопка с экрана другого провайдера иначе выбрала бы
+      // модель с тем же номером у нынешнего. Number('') — это 0, поэтому номер — только цифры.
       const provider = activeProvider(ctx)
-      const model = provider.models[Number(arg)]
-      if (!model) return { show: 'section' }
+      const [, providerId, index] = /^([^:]+):(\d+)$/.exec(arg) ?? []
+      const model = providerId === provider.id ? provider.models[Number(index)] : undefined
+      if (!model) return { show: 'section', toast: MODELS_CHANGED }
       store.setSetting(ctx.ownerId, SETTING.provider, provider.id)
       store.setSetting(ctx.ownerId, SETTING.model, model.id)
       return { show: 'section', toast: `Модель: ${model.title}` }
@@ -98,10 +106,12 @@ export const MODEL: Section = {
       if (!provider) return { show: 'section' }
       if (!ctx.config.keys[provider.id]) {
         env.waits.start(ctx.ownerId, provider.id, { switchProvider: true })
-        return { show: pasteScreen(provider) }
+        // «Отмена» — обратно к провайдерам: владелец пришёл выбирать провайдера, а не ключ.
+        return { show: pasteScreen(provider, action('model', 'prov')) }
       }
-      store.setSetting(ctx.ownerId, SETTING.provider, provider.id)
-      store.setSetting(ctx.ownerId, SETTING.model, provider.models[0]!.id)
+      // Уже включён: переключение сбросило бы выбранную модель на первую из списка.
+      if (provider.id === activeProvider(ctx).id) return { show: 'section', toast: `Уже ${provider.label}` }
+      switchProvider(store, ctx.ownerId, provider)
       return { show: 'section', toast: `Теперь ${provider.label}` }
     }
     return { show: 'section' }

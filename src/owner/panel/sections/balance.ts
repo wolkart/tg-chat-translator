@@ -1,7 +1,7 @@
 import { dayMonth, money, plural, roughly, spaced } from '../../../format.ts'
 import { escapeHtml } from '../../../html.ts'
-import type { Balance } from '../../../translate/account.ts'
-import { translationCost } from '../../../translate/cost.ts'
+import type { Balance, ModelPrice } from '../../../translate/account.ts'
+import { translationCost, translationsLeft } from '../../../translate/cost.ts'
 import { warningTexts } from '../../warnings.ts'
 import { BACK, action, type Section } from '../screen.ts'
 
@@ -19,10 +19,22 @@ function remainingLine(balance: Balance): string {
   return `Остаток не узнать: ${accountUnknown}`
 }
 
+/**
+ * «— на остаток хватит примерно на 46 000 переводов». Остатка не узнать, модель бесплатная или
+ * цена битая — без этой части: деление на ноль дало бы «NaN переводов».
+ */
+function enoughPart(remaining: number | null, price: ModelPrice): string {
+  const left = remaining === null ? null : translationsLeft(remaining, price)
+  if (left === null) return ''
+  const n = roughly(left)
+  return ` — на остаток хватит примерно на ${spaced(n)} ${plural(n, ['перевод', 'перевода', 'переводов'])}`
+}
+
 /** Баланс провайдера, который сейчас переводит. Видит бот его только у провайдеров со счётом. */
 export const BALANCE: Section = {
   id: 'bal',
   button: '💰 Баланс',
+  needs: { account: true },
 
   render(ctx) {
     const { model } = ctx.config
@@ -30,11 +42,19 @@ export const BALANCE: Section = {
     const label = escapeHtml(model.provider.label)
     if (!ctx.account) {
       return {
-        html: `<b>💰 Баланс</b>\n\nБаланс ${label} бот не видит — смотрите в кабинете провайдера: ${model.provider.keysUrl}`,
+        html: `<b>💰 Баланс</b>\n\nБаланс ${label} бот не видит — смотрите в кабинете провайдера: ${escapeHtml(model.provider.keysUrl)}`,
         keyboard: [[BACK]],
       }
     }
-    const { balance, prices } = ctx.account
+    const { balance, prices, rejected } = ctx.account
+    if (rejected) {
+      // Не «нет связи»: обновлять бесполезно, пока ключ не заменят. Ключ из .env панель не заменит.
+      const how = model.keySource === 'env' ? `Проверьте ${escapeHtml(model.provider.envKey)} в .env.` : 'Вставьте новый ключ: «🔑 Ключ».'
+      return {
+        html: `<b>💰 Баланс ${label}</b>\n\n${label} не принял ключ — остаток не узнать. ${how}`,
+        keyboard: [[REFRESH_BALANCE], [BACK]],
+      }
+    }
     if (!balance) {
       return {
         html: `<b>💰 Баланс ${label}</b>\n\nОстаток сейчас не узнать: нет связи с ${label}`,
@@ -50,12 +70,7 @@ export const BALANCE: Section = {
     if (price) {
       const title = escapeHtml(model.title)
       lines.push(`Модель ${title}: ${money(price.input * 1e6)} за 1 млн токенов на вход, ${money(price.output * 1e6)} на выход`)
-      const cost = translationCost(price)
-      const left =
-        balance.remaining !== null && cost > 0
-          ? ` — на остаток хватит примерно на ${spaced(roughly(balance.remaining / cost))} ${plural(roughly(balance.remaining / cost), ['перевод', 'перевода', 'переводов'])}`
-          : ''
-      lines.push(`Один перевод ≈ ${money(cost)}${left}`)
+      lines.push(`Один перевод ≈ ${money(translationCost(price))}${enoughPart(balance.remaining, price)}`)
     }
     lines.push(balance.expiresAt === null ? 'Ключ бессрочный' : `Ключ действует до ${dayMonth(balance.expiresAt)}`)
     // Те же предупреждения, что приходят в личку: ключ истекает, деньги кончаются, модель уходит.

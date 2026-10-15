@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Update } from 'grammy/types'
 import { createApp } from '../src/app.ts'
-import { getProvider } from '../src/translate/providers.ts'
+import { PROVIDERS, getProvider } from '../src/translate/providers.ts'
 import { KEY_GUARD, KEY_GUARD_NOT_DELETED, KEY_NOT_DELETED, KEY_WAIT_MS, keySaved, maskKey, otherProviderKey } from '../src/owner/panel/key-input.ts'
 import { createPanel } from '../src/owner/panel/panel.ts'
 import { SETTING, keySetting } from '../src/store.ts'
@@ -99,6 +99,15 @@ test('спека: ключ принят — сообщение удалено, �
   assert.ok(panel.text.includes('<b>⚙️ Переводчик</b>'))
   assert.equal(ctx.translator.calls.length, 0)
   assert.ok(ctx.secrets.includes(KEY))
+})
+
+test('ключ принят — новая панель берёт остаток из проверки и второй раз провайдера не спрашивает', async () => {
+  const ctx = await keyFlow()
+  await ctx.press('p:key:paste')
+  await ctx.app.handleUpdate(ownerText(KEY))
+  assert.equal(ctx.accounts.calls.verify.length, 1)
+  assert.deepEqual(ctx.accounts.calls.balance, [])
+  assert.ok(ctx.tg.callsOf('sendText').at(-1)!.text.includes('✅ Ключ OpenRouter: осталось $6,53, действует до 16 октября'))
 })
 
 test('ключ с текстом вокруг — сохраняется только ключ', async () => {
@@ -309,6 +318,16 @@ test('maskKey: известные префиксы остаются, чужое 
   assert.equal(maskKey(KEY), 'sk-or-v1-…3210')
   assert.equal(maskKey(`gsk_${'x9'.repeat(25)}`), 'gsk_…x9x9')
   assert.equal(maskKey(`sk-${'a'.repeat(40)}`), 'sk-…aaaa')
+})
+
+test('maskKey: префиксы — из таблицы провайдеров, у каждого, чей ключ узнаётся по виду', () => {
+  const recognizable = PROVIDERS.filter((provider) => provider.keyPattern)
+  assert.ok(recognizable.length >= 4)
+  for (const provider of recognizable) {
+    assert.ok(provider.keyPrefix, provider.id)
+    const key = `${provider.keyPrefix}${'Ab3'.repeat(14)}`
+    assert.equal(maskKey(key), `${provider.keyPrefix}…${key.slice(-4)}`, provider.id)
+  }
 })
 
 test('keySaved: «ключ бессрочный»', () => {

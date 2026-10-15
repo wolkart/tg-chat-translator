@@ -3,7 +3,7 @@ import { dayMonth, money, plural, roughly, spaced, utcDay } from '../format.ts'
 import { DAY, HOUR, warnedSetting } from '../store.ts'
 import { describeError } from '../telegram.ts'
 import type { Balance, ModelPrice } from '../translate/account.ts'
-import { translationCost } from '../translate/cost.ts'
+import { translationsLeft } from '../translate/cost.ts'
 import type { KeySource, Provider } from '../translate/providers.ts'
 
 /** За сколько предупреждать: ключ — за 3 дня, модель — за 14, деньги — когда меньше $1. */
@@ -29,10 +29,12 @@ export type WarningInput = {
 /** Предупреждение — строка реестра: вид (для «сегодня уже было») и текст, null — повода нет. */
 export type AccountWarning = { kind: string; text(input: WarningInput): string | null }
 
-function translationsLeft(usd: number, price: ModelPrice | undefined): string {
-  if (!price) return ''
-  const left = roughly(usd / translationCost(price))
-  return ` — это примерно ${spaced(left)} ${plural(left, ['перевод', 'перевода', 'переводов'])}`
+/** «— это примерно 6 000 переводов»; цены нет или перевод не посчитать — без этой части. */
+function leftPart(usd: number, price: ModelPrice | undefined): string {
+  const left = price ? translationsLeft(usd, price) : null
+  if (left === null) return ''
+  const rough = roughly(left)
+  return ` — это примерно ${spaced(rough)} ${plural(rough, ['перевод', 'перевода', 'переводов'])}`
 }
 
 const KEY_EXPIRY: AccountWarning = {
@@ -55,9 +57,9 @@ const LOW_BALANCE: AccountWarning = {
     if (!balance || balance.remaining === null || balance.remaining >= LOW_BALANCE_USD) return null
     // Кончается лимит ключа, а не деньги на счёте — пополнять счёт бесполезно.
     if (balance.keyLeft !== null && (balance.account === null || balance.keyLeft < balance.account)) {
-      return `У ключа ${provider.label} до лимита осталось ${money(balance.keyLeft)}${translationsLeft(balance.keyLeft, price)}. Поднимите лимит ключа или выпустите новый: ${provider.keysUrl}`
+      return `У ключа ${provider.label} до лимита осталось ${money(balance.keyLeft)}${leftPart(balance.keyLeft, price)}. Поднимите лимит ключа или выпустите новый: ${provider.keysUrl}`
     }
-    return `На ${provider.label} осталось ${money(balance.remaining)}${translationsLeft(balance.remaining, price)}. Пополните баланс: ${provider.topUpUrl ?? provider.keysUrl}`
+    return `На ${provider.label} осталось ${money(balance.remaining)}${leftPart(balance.remaining, price)}. Пополните баланс: ${provider.topUpUrl ?? provider.keysUrl}`
   },
 }
 

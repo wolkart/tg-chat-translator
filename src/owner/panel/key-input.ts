@@ -1,7 +1,8 @@
 import type { Deps } from '../../deps.ts'
 import { dayMonth, money } from '../../format.ts'
 import { escapeHtml } from '../../html.ts'
-import { keySetting, SETTING } from '../../store.ts'
+import { switchProvider } from '../../settings.ts'
+import { keySetting } from '../../store.ts'
 import type { Balance } from '../../translate/account.ts'
 import { getProvider, looksLikeKey, PROVIDERS, providerBaseUrl, type Provider } from '../../translate/providers.ts'
 import type { KeyWait, KeyWaits, Screen } from './screen.ts'
@@ -32,15 +33,22 @@ export function createKeyWaits(now: () => number): KeyWaits {
   }
 }
 
+/**
+ * Префиксы ключей из таблицы провайдеров, длинные первыми: иначе ключ OpenRouter показался бы
+ * как «sk-…». Новый провайдер со своим префиксом — строка в таблице, а не правка здесь.
+ */
+const KEY_PREFIXES = [...new Set(PROVIDERS.flatMap((provider) => provider.keyPrefix ?? []))].sort((a, b) => b.length - a.length)
+
 /** Ключ огрызком: префикс провайдера и четыре последних знака — «sk-or-v1-…a3f9». */
 export function maskKey(key: string): string {
   if (key.length <= 16) return '••••'
   // Только известные префиксы провайдеров: у чужого формата «слово_» в начале может быть частью секрета.
-  const head = /^(?:sk-or-v1-|sk-|gsk_)/.exec(key)?.[0] ?? ''
+  const head = KEY_PREFIXES.find((prefix) => key.startsWith(prefix)) ?? ''
   return `${head}…${key.slice(-4)}`
 }
 
-export function pasteScreen(provider: Provider): Screen {
+/** back — куда ведёт «Отмена»: туда, откуда владельца попросили ключ. */
+export function pasteScreen(provider: Provider, back: string = action('key', 'cancel')): Screen {
   const label = escapeHtml(provider.label)
   return {
     html: [
@@ -52,7 +60,7 @@ export function pasteScreen(provider: Provider): Screen {
       '',
       'Совет: выпустите ключ с лимитом трат — если утечёт, ущерб ограничен суммой.',
     ].join('\n'),
-    keyboard: [[{ text: 'Отмена', data: action('key', 'cancel') }]],
+    keyboard: [[{ text: 'Отмена', data: back }]],
   }
 }
 
@@ -96,17 +104,23 @@ function extractKey(provider: Provider, text: string): string | null {
 
 type OwnerText = { text: string; messageId: number; threadId?: number }
 
+/** Ключ, который провайдер только что принял, и баланс из той же проверки. */
+export type VerifiedKey = { provider: Provider; key: string; balance: Balance | null }
+
+type Open = (notice: string, verified: VerifiedKey) => Promise<void>
+
 /**
  * Текст владельца, пока бот ждёт ключ, и страховка от ключа не по запросу. true — сообщение
  * обработано здесь: дальше по маршруту (перевод, «Кому?») оно не идёт.
  * open — прислать новую панель: после сохранения ключа старая осталась далеко вверху.
+ * verified — чтобы панель не спрашивала у провайдера баланс, который проверка уже принесла.
  */
 export async function onKeyText(
   deps: Deps,
   waits: KeyWaits,
   ownerId: number,
   message: OwnerText,
-  open: (notice: string) => Promise<void>,
+  open: Open,
 ): Promise<boolean> {
   const wait = waits.get(ownerId)
   // Ключом считается только сообщение вне тем: в теме владелец отвечает собеседнику.
@@ -156,7 +170,7 @@ async function acceptKey(
   deps: Deps,
   waits: KeyWaits,
   ownerId: number,
-  input: { provider: Provider; key: string; wait: KeyWait; messageId: number; open: (notice: string) => Promise<void> },
+  input: { provider: Provider; key: string; wait: KeyWait; messageId: number; open: Open },
 ): Promise<void> {
   const { provider, key, wait } = input
   deps.addSecret(key)
@@ -174,13 +188,9 @@ async function acceptKey(
   }
 
   deps.store.setSetting(ownerId, keySetting(provider.id), key)
-  if (wait.switchProvider) {
-    // У каждого провайдера свои модели — после переключения работает первая из его списка.
-    deps.store.setSetting(ownerId, SETTING.provider, provider.id)
-    deps.store.setSetting(ownerId, SETTING.model, provider.models[0]!.id)
-  }
+  if (wait.switchProvider) switchProvider(deps.store, ownerId, provider)
   waits.cancel(ownerId)
-  await input.open(keySaved(key, check.balance))
+  await input.open(keySaved(key, check.balance), { provider, key, balance: check.balance })
 }
 
 /** Ключ не по запросу — в теме или после ожидания: не переводить, удалить, подсказать. */

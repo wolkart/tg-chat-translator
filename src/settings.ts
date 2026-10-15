@@ -49,6 +49,16 @@ function realTranslator(model: ReadyModel, fetchImpl?: typeof fetch): Translator
 }
 
 /**
+ * Включить провайдера. У каждого провайдера свои модели — после переключения работает первая
+ * из его списка: модель прежнего провайдера у нового не найдётся. Одна точка для «Сменить
+ * провайдера» и для ключа, принятого после неё, чтобы правило не разошлось.
+ */
+export function switchProvider(store: Store, ownerId: number, provider: Provider): void {
+  store.setSetting(ownerId, SETTING.provider, provider.id)
+  store.setSetting(ownerId, SETTING.model, provider.models[0]!.id)
+}
+
+/**
  * Настройки читаются из базы в момент вызова, а не один раз при старте: так изменение в
  * панели действует со следующего перевода, без перезапуска. Кэша нет намеренно — забытый
  * сброс кэша дал бы ровно ту поломку, которую тесты не ловят, а чтение — несколько строк

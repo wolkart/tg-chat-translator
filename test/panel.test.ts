@@ -3,10 +3,12 @@ import assert from 'node:assert/strict'
 import { SETTINGS_PATH } from '../src/channels/private-chat/connection.ts'
 import { ACCOUNT_CACHE_MS, NOT_CHANGED, createPanel } from '../src/owner/panel/panel.ts'
 import { REFRESH } from '../src/owner/panel/screen.ts'
+import { keySetting } from '../src/store.ts'
 import { TelegramError } from '../src/telegram.ts'
 import { samplePrices } from './fakes.ts'
+import { findButton, openPanel } from './panel-helpers.ts'
 import { OWNER_ID } from './helpers.ts'
-import { setupDeps } from './setup.ts'
+import { TEST_KEY, setupDeps } from './setup.ts'
 
 type Setup = ReturnType<typeof setupDeps>
 
@@ -88,6 +90,23 @@ test('спека: остаток не узнать — ключ есть, ост
   const { lines } = await opened(ctx)
   assert.ok(lines.includes('Ключ OpenRouter: есть, остаток сейчас не узнать'))
   assert.ok(lines.includes('Языки: русский ↔ английский'))
+})
+
+test('ключ из панели не принят провайдером — «⚠️», вставить новый, «🔑 Ключ» зелёная', async () => {
+  const ctx = setupDeps({ live: true, envKeys: {} })
+  ctx.store.setSetting(OWNER_ID, keySetting('openrouter'), TEST_KEY)
+  ctx.accounts.state.rejected = true
+  const { lines, keyboard } = await opened(ctx)
+  assert.ok(lines.includes('⚠️ Ключ OpenRouter не принят провайдером — вставьте новый: нажмите «🔑 Ключ».'), lines.join('\n'))
+  assert.equal(findButton(keyboard, '🔑 Ключ')?.style, 'success')
+})
+
+test('ключ из .env не принят провайдером — проверить переменную в .env', async () => {
+  const ctx = setupDeps()
+  ctx.accounts.state.rejected = true
+  const { lines, keyboard } = await opened(ctx)
+  assert.ok(lines.includes('⚠️ Ключ OpenRouter не принят провайдером — проверьте OPENROUTER_API_KEY в .env.'), lines.join('\n'))
+  assert.equal(findButton(keyboard, '🔑 Ключ')?.style, 'success')
 })
 
 test('ключ бессрочный — так и написано', async () => {
@@ -180,6 +199,27 @@ test('снимок счёта живёт минуту: повторное отк
   assert.equal(ctx.accounts.calls.balance.length, 2)
 })
 
+test('экраны языков, обращения и ключа не спрашивают ни Telegram, ни провайдера; модель — без getMe', async () => {
+  const ctx = setupDeps({ live: true, envKeys: {} })
+  ctx.store.setSetting(OWNER_ID, keySetting('openrouter'), TEST_KEY)
+  const panel = await openPanel(ctx)
+  assert.equal(ctx.tg.callsOf('getMe').length, 1)
+  assert.equal(ctx.accounts.calls.balance.length, 1)
+  // Снимок счёта устарел: экран, которому он нужен, спросил бы провайдера заново.
+  ctx.advance(ACCOUNT_CACHE_MS)
+  for (const data of ['p:lang', 'p:lang:pick:owner', 'p:addr', 'p:addr:set:formal', 'p:key', 'p:key:paste']) {
+    await panel.press(data)
+    assert.equal(ctx.tg.callsOf('getMe').length, 1, data)
+    assert.equal(ctx.accounts.calls.balance.length, 1, data)
+  }
+  await panel.press('p:model')
+  assert.equal(ctx.tg.callsOf('getMe').length, 1)
+  assert.equal(ctx.accounts.calls.balance.length, 2)
+  // Главный экран — снова с getMe: на нём строка BotFather.
+  await panel.press('p:main')
+  assert.equal(ctx.tg.callsOf('getMe').length, 2)
+})
+
 test('кнопка «🔄 Обновить» — на главном экране', async () => {
   const { keyboard } = await opened(setupDeps())
   assert.deepEqual(keyboard.flat().at(-1), { text: '🔄 Обновить', data: REFRESH })
@@ -217,10 +257,26 @@ test('спека: «🔄 Обновить» без изменений — «Бе
   assert.equal(ctx.tg.callsOf('answerCallback')[0]!.text, NOT_CHANGED)
 })
 
-test('другая ошибка правки — не глотается', async () => {
+test('другая ошибка правки — тот же экран приходит новым сообщением, нажатие отвечено', async () => {
   const ctx = setupDeps()
   ctx.tg.failNext('editText', new TelegramError(400, 'Bad Request: message to edit not found'))
-  await assert.rejects(createPanel(ctx.deps).onCallback({ id: 'cb3', data: REFRESH, messageId: 1000 }, OWNER_ID))
+  await createPanel(ctx.deps).onCallback({ id: 'cb3', data: REFRESH, messageId: 1000 }, OWNER_ID)
+  const edit = ctx.tg.callsOf('editText')[0]!
+  const sent = ctx.tg.callsOf('sendText')
+  assert.equal(sent.length, 1)
+  assert.equal(sent[0]!.chatId, OWNER_ID)
+  assert.equal(sent[0]!.text, edit.text)
+  assert.deepEqual(sent[0]!.opts, { html: true, keyboard: edit.opts!.keyboard })
+  assert.deepEqual(ctx.tg.callsOf('answerCallback'), [{ method: 'answerCallback', callbackId: 'cb3', text: undefined }])
+})
+
+test('и новое сообщение не ушло — нажатие всё равно отвечено, причина в консоли', async () => {
+  const ctx = setupDeps()
+  ctx.tg.failNext('editText', new TelegramError(400, "Bad Request: message can't be edited"))
+  ctx.tg.failNext('sendText', new Error('сеть моргнула'))
+  await createPanel(ctx.deps).onCallback({ id: 'cb6', data: 'p:lang', messageId: 1000 }, OWNER_ID)
+  assert.deepEqual(ctx.tg.callsOf('answerCallback'), [{ method: 'answerCallback', callbackId: 'cb6', text: undefined }])
+  assert.ok(ctx.printed.some((line) => line.includes('сеть моргнула')), ctx.printed.join('\n'))
 })
 
 test('незнакомая кнопка панели — ответ на нажатие, экран не трогаем', async () => {

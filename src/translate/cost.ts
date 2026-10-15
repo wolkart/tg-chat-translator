@@ -14,3 +14,15 @@ export const TYPICAL_OUTPUT_TOKENS = 40
 export function translationCost(price: Pick<ModelPrice, 'input' | 'output'>): number {
   return price.input * TYPICAL_INPUT_TOKENS + price.output * TYPICAL_OUTPUT_TOKENS
 }
+
+/**
+ * Сколько переводов хватит на сумму. null — не посчитать: у бесплатной модели деление на ноль
+ * дало бы «примерно NaN переводов» или бесконечность. Одна точка для предупреждений и экрана
+ * баланса — иначе проверку забудут в одном из мест.
+ */
+export function translationsLeft(usd: number, price: Pick<ModelPrice, 'input' | 'output'>): number | null {
+  const cost = translationCost(price)
+  if (!(cost > 0)) return null
+  const left = usd / cost
+  return Number.isFinite(left) ? left : null
+}

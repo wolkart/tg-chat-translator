@@ -39,12 +39,36 @@ export type ProviderAccount = {
   prices(): Promise<ReadonlyMap<string, ModelPrice> | null>
 }
 
+/** Баланс и вердикт по ключу: rejected — провайдер ключ больше не принимает. */
+export type KeyState = { balance: Balance | null; rejected: boolean }
+
+/**
+ * balance() отвечает null и на «нет связи», и на «ключ не принят», а владельцу это разное:
+ * в первом случае подождать, во втором — менять ключ. Поэтому, где у счёта есть своя
+ * проверка ключа, спрашиваем её: у OpenRouter она ходит теми же /key и /credits, что и
+ * баланс, — лишних запросов нет.
+ */
+export async function keyState(account: ProviderAccount, key: string): Promise<KeyState> {
+  if (!account.verify) return { balance: await account.balance(key), rejected: false }
+  const check = await account.verify(key)
+  return { balance: check.verdict === 'ok' ? check.balance : null, rejected: check.verdict === 'rejected' }
+}
+
 /** Сколько ждать провайдера на служебных запросах: дольше владелец ждать панель не станет. */
 export const ACCOUNT_TIMEOUT_MS = 10_000
 
 /**
+ * 403 — не «ключ плохой»: так отвечают и из страны, куда провайдер не пускает, и ключу без
+ * доступа к этому методу. Назвать ключ непринятым — отправить владельца выпускать новый,
+ * который упрётся в то же самое.
+ */
+export function forbiddenReason(label: string): string {
+  return `${label} отказал в доступе (403) — возможно, он недоступен из вашей страны или для этого ключа`
+}
+
+/**
  * Общая проверка ключа для OpenAI-совместимых провайдеров: список моделей с этим ключом.
- * Принят — 2xx, не принят — 401 и 403, остальное — «не проверить». У OpenRouter так нельзя:
+ * Принят — 2xx, не принят — 401, остальное (и 403) — «не проверить». У OpenRouter так нельзя:
  * его список моделей открыт без ключа и примет любую строку, поэтому у него своя проверка.
  */
 export async function checkKeyByModels(provider: Provider, key: string, baseUrl: string, http: Http): Promise<KeyCheck> {
@@ -58,7 +82,8 @@ export async function checkKeyByModels(provider: Provider, key: string, baseUrl:
     return { verdict: 'unknown', reason: `нет связи с ${provider.label}` }
   }
   if (response.ok) return { verdict: 'ok', balance: null }
-  if (response.status === 401 || response.status === 403) return { verdict: 'rejected' }
+  if (response.status === 401) return { verdict: 'rejected' }
+  if (response.status === 403) return { verdict: 'unknown', reason: forbiddenReason(provider.label) }
   return { verdict: 'unknown', reason: `${provider.label} ответил ошибкой ${response.status}` }
 }
 

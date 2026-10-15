@@ -25,6 +25,8 @@ export type Provider = {
    * переводит его. Нет — ключ заранее не опознать (локальная модель).
    */
   keyPattern?: RegExp
+  /** С чего начинается ключ: его и показывает огрызок ключа («sk-or-v1-…a3f9») */
+  keyPrefix?: string
   /** Подсказка «он начинается с …», когда прислали не ключ */
   keyHint?: string
   /** Где пополнить баланс */
@@ -41,6 +43,7 @@ export const PROVIDERS: Provider[] = [
     envKey: 'OPENROUTER_API_KEY',
     keysUrl: 'https://openrouter.ai/keys',
     keyPattern: /sk-or-v1-[0-9a-f]{64}/,
+    keyPrefix: 'sk-or-v1-',
     keyHint: 'он начинается с sk-or-v1-',
     topUpUrl: 'https://openrouter.ai/settings/credits',
     account: createOpenRouterAccount,
@@ -64,6 +67,7 @@ export const PROVIDERS: Provider[] = [
     keysUrl: 'https://platform.deepseek.com/api_keys',
     // Шаблон длинный нарочно: «sk-» в обычной фразе («sk-board») ключом не считается.
     keyPattern: /\bsk-[A-Za-z0-9]{32,}/,
+    keyPrefix: 'sk-',
     keyHint: 'он начинается с sk-',
     models: [{ id: 'deepseek-chat', title: 'DeepSeek Chat' }],
   },
@@ -74,6 +78,7 @@ export const PROVIDERS: Provider[] = [
     envKey: 'MOONSHOT_API_KEY',
     keysUrl: 'https://platform.moonshot.ai/console/api-keys',
     keyPattern: /\bsk-[A-Za-z0-9]{32,}/,
+    keyPrefix: 'sk-',
     keyHint: 'он начинается с sk-',
     models: [{ id: 'kimi-k2-0905-preview', title: 'Kimi K2' }],
   },
@@ -84,6 +89,7 @@ export const PROVIDERS: Provider[] = [
     envKey: 'GROQ_API_KEY',
     keysUrl: 'https://console.groq.com/keys',
     keyPattern: /\bgsk_[A-Za-z0-9]{40,}/,
+    keyPrefix: 'gsk_',
     keyHint: 'он начинается с gsk_',
     models: [{ id: 'llama-3.3-70b-versatile', title: 'Llama 3.3 70B' }],
   },

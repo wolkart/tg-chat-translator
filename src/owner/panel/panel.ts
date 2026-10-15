@@ -1,6 +1,7 @@
 import type { Deps } from '../../deps.ts'
 import { describeError, isNotModified, type BotInfo, type InlineButton } from '../../telegram.ts'
-import { createKeyWaits, onKeyText } from './key-input.ts'
+import { keyState } from '../../translate/account.ts'
+import { createKeyWaits, onKeyText, type VerifiedKey } from './key-input.ts'
 import { SECTIONS } from './sections/index.ts'
 import {
   MAIN,
@@ -19,6 +20,24 @@ import { statusLines } from './status.ts'
 
 /** Сколько живёт снимок счёта: хождение по экранам не дёргает провайдера на каждое нажатие. */
 export const ACCOUNT_CACHE_MS = 60 * 1000
+
+/** Снимок счёта — на пару «провайдер, ключ»: новый ключ не получит остаток старого. */
+function snapshotKey(providerId: string, key: string): string {
+  return `${providerId}:${key}`
+}
+
+/** Что грузить под экран сверх настроек. */
+type Needs = { me?: boolean; account?: boolean }
+
+/** Главному экрану — всё: на нём строки BotFather, ключа с остатком и цена модели. */
+const MAIN_NEEDS: Needs = { me: true, account: true }
+
+/** Что грузить под итог нажатия; null — экран уже готов, грузить нечего. */
+function needsOf(outcome: Outcome, section: Section | undefined): Needs | null {
+  if (outcome.show === 'main') return MAIN_NEEDS
+  if (outcome.show === 'section') return { account: section?.needs?.account ?? false }
+  return null
+}
 
 export const NOT_CHANGED = 'Без изменений'
 
@@ -74,27 +93,54 @@ export function createPanel(deps: Deps): Panel {
     if (!model.ok) return null
     const account = deps.accounts.of(model.provider)
     if (!account) return null
-    const cacheKey = `${model.provider.id}:${model.apiKey}`
+    const cacheKey = snapshotKey(model.provider.id, model.apiKey)
     const cached = accounts.get(cacheKey)
     if (!fresh && cached && deps.now() - cached.at < ACCOUNT_CACHE_MS) return cached.snapshot
-    const [balance, prices] = await Promise.all([account.balance(model.apiKey), account.prices()])
-    const snapshot = { balance, prices }
+    const [state, prices] = await Promise.all([keyState(account, model.apiKey), account.prices()])
+    const snapshot = { ...state, prices }
     accounts.set(cacheKey, { at: deps.now(), snapshot })
     return snapshot
   }
 
-  async function context(ownerId: number, fresh = false): Promise<PanelContext> {
+  /**
+   * Проверка ключа уже сходила к провайдеру за балансом: он ложится в снимок, и новая панель
+   * не спрашивает /key и /credits второй раз. Цены — из счёта, у него свой кэш на час.
+   * Баланса проверка не принесла — снимок не подделываем, панель спросит сама.
+   */
+  async function remember({ provider, key, balance }: VerifiedKey): Promise<void> {
+    const account = deps.accounts.of(provider)
+    if (!account || !balance) return
+    const prices = await account.prices()
+    accounts.set(snapshotKey(provider.id, key), { at: deps.now(), snapshot: { balance, rejected: false, prices } })
+  }
+
+  /** Настройки читаются всегда; getMe и счёт — только если экрану они нужны. */
+  async function context(ownerId: number, needs: Needs = {}, fresh = false): Promise<PanelContext> {
     const config = deps.config(ownerId)
-    const [me, account] = await Promise.all([botInfo(), accountOf({ config }, fresh)])
+    const [me, account] = await Promise.all([needs.me ? botInfo() : null, needs.account ? accountOf({ config }, fresh) : null])
     return {
       ownerId,
       config,
       connection: deps.store.ownerConnection(ownerId),
       me,
       account,
-      inline: me ? me.supportsInlineQueries : await deps.inlineEnabled(),
+      inline: needs.me ? (me ? me.supportsInlineQueries : await deps.inlineEnabled()) : false,
       dry: deps.dry,
       now: deps.now(),
+    }
+  }
+
+  /**
+   * Сообщение панели не правится («message to edit not found», «message can't be edited» —
+   * удалили или оно старое): тот же экран приходит новым сообщением. Иначе нажатие осталось бы
+   * без ответа, а владелец получил бы общее «Не удалось обработать ваше сообщение». И это не
+   * вышло — строка в консоль: на нажатие всё равно надо ответить.
+   */
+  async function resend(ownerId: number, screen: Screen): Promise<void> {
+    try {
+      await deps.api.sendText(ownerId, screen.html, { html: true, keyboard: screen.keyboard })
+    } catch (error) {
+      deps.alerts.log(`панель: экран не обновился и не пришёл новым сообщением — ${describeError(error)}`)
     }
   }
 
@@ -109,7 +155,7 @@ export function createPanel(deps: Deps): Panel {
     async open(ownerId, opts = {}) {
       // /start — новое действие: ключ после него уже не ждём.
       env.waits.cancel(ownerId)
-      const ctx = await context(ownerId)
+      const ctx = await context(ownerId, MAIN_NEEDS)
       const screen = mainScreen(ctx, opts.notice)
       await deps.api.sendText(ownerId, screen.html, {
         html: true,
@@ -125,35 +171,40 @@ export function createPanel(deps: Deps): Panel {
       // «🔄 Обновить» на главном и на экране баланса: снимок счёта — свежий.
       const refresh = callback.data === REFRESH || act === 'refresh'
       const section = SECTIONS.find((candidate) => candidate.id === sectionId)
-      let ctx = await context(ownerId, refresh)
+      // Действию хватает настроек: getMe и счёт грузятся ниже, под экран, который покажут.
+      const base = await context(ownerId)
 
       let outcome: Outcome | null
       if (callback.data === MAIN || callback.data === REFRESH) outcome = { show: 'main' }
-      else outcome = await outcomeOf(ctx, section, act, rest.join(':'))
+      else outcome = await outcomeOf(base, section, act, rest.join(':'))
       if (!outcome || callback.messageId === undefined) {
         await deps.api.answerCallback(callback.id)
         return
       }
 
-      // Действие могло поменять настройки — экран рисуется по свежим. getMe второй раз не нужен.
-      if (act !== undefined) {
-        const config = deps.config(ownerId)
-        ctx = { ...ctx, config, account: await accountOf({ config }, false) }
-      }
+      // Настройки читаются заново: действие могло их поменять, и экран рисуется по свежим.
+      const needs = needsOf(outcome, section)
+      const ctx = needs ? await context(ownerId, needs, refresh) : base
       const screen =
         outcome.show === 'main' ? mainScreen(ctx) : outcome.show === 'section' ? section!.render(ctx, env) : outcome.show
       let toast = outcome.toast
       try {
         await deps.api.editText(ownerId, callback.messageId, screen.html, { html: true, keyboard: screen.keyboard })
       } catch (error) {
-        if (!isNotModified(error)) throw error
-        if (refresh) toast = NOT_CHANGED
+        if (isNotModified(error)) {
+          if (refresh) toast = NOT_CHANGED
+        } else {
+          await resend(ownerId, screen)
+        }
       }
       await deps.api.answerCallback(callback.id, toast)
     },
 
     onText(ownerId, message) {
-      return onKeyText(deps, env.waits, ownerId, message, (notice) => panel.open(ownerId, { notice }))
+      return onKeyText(deps, env.waits, ownerId, message, async (notice, verified) => {
+        await remember(verified)
+        await panel.open(ownerId, { notice })
+      })
     },
   }
   return panel

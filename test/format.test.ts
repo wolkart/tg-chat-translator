@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { dayMonth, money, plural, roughly, spaced, utcDay } from '../src/format.ts'
-import { TYPICAL_INPUT_TOKENS, TYPICAL_OUTPUT_TOKENS, translationCost } from '../src/translate/cost.ts'
+import { TYPICAL_INPUT_TOKENS, TYPICAL_OUTPUT_TOKENS, translationCost, translationsLeft } from '../src/translate/cost.ts'
 import { toPrices } from '../src/translate/openrouter.ts'
 
 test('деньги: с запятой, мелочь — двумя значащими цифрами', () => {
@@ -58,4 +58,15 @@ test('цена перевода у Haiku по ценам из образца —
   assert.equal(TYPICAL_OUTPUT_TOKENS, 40)
   assert.equal(money(translationCost(haiku)), '$0,00014')
   assert.equal(money(translationCost(haiku) * 1000), '$0,14')
+})
+
+test('сколько переводов хватит: бесплатная или битая цена — не посчитать', () => {
+  const haiku = { input: 0.0000001, output: 0.0000005 }
+  assert.equal(translationsLeft(0.84, haiku), 0.84 / translationCost(haiku))
+  assert.equal(translationsLeft(0, haiku), 0)
+  assert.equal(translationsLeft(0.84, { input: 0, output: 0 }), null)
+  assert.equal(translationsLeft(0, { input: 0, output: 0 }), null)
+  assert.equal(translationsLeft(0.84, { input: Number.NaN, output: 0 }), null)
+  assert.equal(translationsLeft(0.84, { input: -0.000001, output: 0 }), null)
+  assert.equal(translationsLeft(Number.POSITIVE_INFINITY, haiku), null)
 })

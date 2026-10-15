@@ -144,3 +144,26 @@ test('реестр: без повода — ни одного предупреж
     [],
   )
 })
+
+test('цена перевода не посчитать (бесплатная модель) — предупреждение без «примерно N переводов»', () => {
+  const input = {
+    provider: getProvider('openrouter'),
+    keySource: 'panel' as const,
+    modelTitle: 'Free',
+    price: { input: 0, output: 0, expiresAt: null },
+    now: EXPIRES - 10 * DAY,
+  }
+  assert.deepEqual(warningTexts({ ...input, balance: { ...SAMPLE_BALANCE, account: 0.84, remaining: 0.84, keyLeft: 5 } }), [
+    'На OpenRouter осталось $0,84. Пополните баланс: https://openrouter.ai/settings/credits',
+  ])
+  assert.deepEqual(warningTexts({ ...input, balance: { ...SAMPLE_BALANCE, account: 6.53, remaining: 0, keyLeft: 0 } }), [
+    'У ключа OpenRouter до лимита осталось $0. Поднимите лимит ключа или выпустите новый: https://openrouter.ai/keys',
+  ])
+})
+
+test('ключ не принят провайдером — предупреждений о сроке и остатке нет: баланс не узнать', async () => {
+  const ctx = warned()
+  ctx.accounts.state.rejected = true
+  await checkWarnings(ctx.deps, OWNER_ID)
+  assert.deepEqual(ctx.sent(), [])
+})

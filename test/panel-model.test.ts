@@ -209,3 +209,84 @@ test('ответ после смены модели — через новую м
   assert.equal(model.ok && model.model, 'deepseek/deepseek-v4-flash')
   assert.equal(ctx.tg.sentAsOwner().length, 1)
 })
+
+test('бесплатная модель — «Один перевод ≈ $0» без «хватит на N переводов»', async () => {
+  const ctx = setupDeps({ live: true })
+  const prices = samplePrices()
+  prices.set('anthropic/claude-haiku-5.5', { input: 0, output: 0, expiresAt: null })
+  ctx.accounts.state.prices = prices
+  const screen = await (await openPanel(ctx)).tap('💰 Баланс')
+  assert.ok(screen.html.includes('\nОдин перевод ≈ $0\n'), screen.html)
+})
+
+test('ссылка на кабинет на экране баланса проходит escapeHtml', async () => {
+  const provider = { ...PROVIDERS[1]!, keysUrl: 'https://example.test/keys?a=1&b=<2>' }
+  const model = { ok: true as const, provider, model: 'deepseek-chat', title: 'DeepSeek Chat', apiKey: 'k', keySource: 'env' as const, baseUrl: '' }
+  const screen = await (await openPanel(setupDeps({ overrides: { model, provider } }))).tap('💰 Баланс')
+  assert.ok(screen.html.endsWith('смотрите в кабинете провайдера: https://example.test/keys?a=1&amp;b=&lt;2&gt;'), screen.html)
+})
+
+test('выбор провайдера, который уже включён, ничего не меняет — модель владельца остаётся', async () => {
+  const ctx = setupDeps({ live: true })
+  const panel = await openPanel(ctx)
+  await panel.tap('🤖 Модель')
+  await panel.tap(/^GPT-5\.6 Luna/)
+  await panel.tap('Сменить провайдера')
+  const screen = await panel.tap('✅ OpenRouter')
+  assert.equal(screen.toast, 'Уже OpenRouter')
+  assert.ok(screen.html.startsWith('<b>🤖 Модель</b> · OpenRouter\n\nСейчас: GPT-5.6 Luna'), screen.html)
+  assert.equal(ctx.store.getSetting(OWNER_ID, SETTING.model), 'openai/gpt-5.6-luna')
+})
+
+test('старая кнопка модели другого провайдера — ничего не сохраняется, просьба выбрать ещё раз', async () => {
+  const ctx = setupDeps({ live: true, envKeys: { OPENROUTER_API_KEY: KEY, DEEPSEEK_API_KEY: `sk-${'a'.repeat(32)}` } })
+  const panel = await openPanel(ctx)
+  await panel.tap('🤖 Модель')
+  // Экран моделей OpenRouter остался в чате, а провайдера тем временем сменили.
+  ctx.store.setSetting(OWNER_ID, SETTING.provider, 'deepseek')
+  const stale = await panel.tap(/Claude Haiku 5\.5/)
+  assert.equal(stale.toast, 'Список моделей обновился — выберите ещё раз')
+  assert.equal(ctx.store.getSetting(OWNER_ID, SETTING.model), 'anthropic/claude-haiku-5.5')
+  assert.ok(stale.html.startsWith('<b>🤖 Модель</b> · DeepSeek'), stale.html)
+})
+
+test('кнопка модели без номера, с чужим или лишним номером — ничего не сохраняется', async () => {
+  const ctx = setupDeps({ live: true })
+  ctx.store.setSetting(OWNER_ID, SETTING.model, 'openai/gpt-5.6-luna')
+  const panel = await openPanel(ctx)
+  for (const data of ['p:model:set:openrouter:', 'p:model:set:', 'p:model:set:openrouter:9', 'p:model:set:openrouter:1x', 'p:model:set:deepseek:0']) {
+    const screen = await panel.press(data)
+    assert.equal(screen.toast, 'Список моделей обновился — выберите ещё раз', data)
+    assert.equal(ctx.store.getSetting(OWNER_ID, SETTING.model), 'openai/gpt-5.6-luna', data)
+  }
+})
+
+test('«Отмена» на просьбе ключа после «Сменить провайдера» — назад к провайдерам, ожидание снято', async () => {
+  const ctx = setupDeps({ live: true })
+  const panel = await openPanel(ctx)
+  await panel.tap('🤖 Модель')
+  await panel.tap('Сменить провайдера')
+  const ask = await panel.tap('DeepSeek 🔑')
+  assert.deepEqual(ask.keyboard, [[{ text: 'Отмена', data: 'p:model:prov' }]])
+  const back = await panel.tap('Отмена')
+  assert.ok(back.html.startsWith('<b>Провайдер моделей</b>'), back.html)
+  await panel.panel.onText(OWNER_ID, { text: `sk-${'b'.repeat(32)}`, messageId: 77 })
+  assert.equal(ctx.store.getSetting(OWNER_ID, keySetting('deepseek')), undefined)
+})
+
+test('ключ из панели не принят провайдером — экран баланса так и говорит', async () => {
+  const ctx = setupDeps({ live: true, envKeys: {} })
+  ctx.store.setSetting(OWNER_ID, keySetting('openrouter'), KEY)
+  ctx.accounts.state.rejected = true
+  const screen = await (await openPanel(ctx)).tap('💰 Баланс')
+  assert.equal(screen.html, '<b>💰 Баланс OpenRouter</b>\n\nOpenRouter не принял ключ — остаток не узнать. Вставьте новый ключ: «🔑 Ключ».')
+  assert.deepEqual(screen.keyboard.map((row) => row.map((button) => button.text)), [['🔄 Обновить'], ['← Назад']])
+})
+
+test('ключ из .env не принят провайдером — экран баланса ведёт в .env', async () => {
+  const ctx = setupDeps({ live: true })
+  ctx.accounts.state.rejected = true
+  const screen = await (await openPanel(ctx)).tap('💰 Баланс')
+  assert.equal(screen.html, '<b>💰 Баланс OpenRouter</b>\n\nOpenRouter не принял ключ — остаток не узнать. Проверьте OPENROUTER_API_KEY в .env.')
+  assert.deepEqual(screen.keyboard.map((row) => row.map((button) => button.text)), [['🔄 Обновить'], ['← Назад']])
+})

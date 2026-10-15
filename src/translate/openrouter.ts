@@ -1,4 +1,12 @@
-import { ACCOUNT_TIMEOUT_MS, type Balance, type Http, type KeyCheck, type ModelPrice, type ProviderAccount } from './account.ts'
+import {
+  ACCOUNT_TIMEOUT_MS,
+  forbiddenReason,
+  type Balance,
+  type Http,
+  type KeyCheck,
+  type ModelPrice,
+  type ProviderAccount,
+} from './account.ts'
 
 const API = 'https://openrouter.ai/api/v1'
 
@@ -48,15 +56,27 @@ export function toBalance(key: Json, credits: Json | null, creditsStatus: number
   }
 }
 
+/**
+ * Цена за токен — строка из /models. Пустая, null и «-1» (так OpenRouter помечает роутеры:
+ * цена зависит от того, куда уйдёт запрос) — не цена. Number(null) и Number('') дают 0, и
+ * без этой проверки модель стала бы бесплатной.
+ */
+function priceOrNull(value: unknown): number | null {
+  if (typeof value !== 'string' && typeof value !== 'number') return null
+  if (typeof value === 'string' && value.trim() === '') return null
+  const price = Number(value)
+  return Number.isFinite(price) && price >= 0 ? price : null
+}
+
 /** Цены из /models: за токен, как их отдаёт OpenRouter, и дата ухода модели. */
 export function toPrices(data: unknown): Map<string, ModelPrice> {
   const prices = new Map<string, ModelPrice>()
   if (!Array.isArray(data)) return prices
   for (const item of data as Json[]) {
     const pricing = (item.pricing ?? {}) as Json
-    const input = Number(pricing.prompt)
-    const output = Number(pricing.completion)
-    if (typeof item.id !== 'string' || !Number.isFinite(input) || !Number.isFinite(output)) continue
+    const input = priceOrNull(pricing.prompt)
+    const output = priceOrNull(pricing.completion)
+    if (typeof item.id !== 'string' || input === null || output === null) continue
     prices.set(item.id, { input, output, expiresAt: timeOrNull(item.expiration_date) })
   }
   return prices
@@ -86,7 +106,8 @@ export function createOpenRouterAccount(http: Http): ProviderAccount {
   async function check(key: string): Promise<KeyCheck> {
     const [keyResponse, creditsResponse] = await Promise.all([get('/key', key), get('/credits', key)])
     if (!keyResponse) return { verdict: 'unknown', reason: 'нет связи с OpenRouter' }
-    if (keyResponse.status === 401 || keyResponse.status === 403) return { verdict: 'rejected' }
+    if (keyResponse.status === 401) return { verdict: 'rejected' }
+    if (keyResponse.status === 403) return { verdict: 'unknown', reason: forbiddenReason('OpenRouter') }
     const data = keyResponse.ok ? await dataOf(keyResponse) : null
     if (!data) return { verdict: 'unknown', reason: `OpenRouter ответил ошибкой ${keyResponse.status}` }
     const credits = creditsResponse?.ok ? await dataOf(creditsResponse) : null
