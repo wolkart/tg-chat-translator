@@ -1,4 +1,6 @@
 import { SETTING } from '../store.ts'
+import type { Http, ProviderAccount } from './account.ts'
+import { createOpenRouterAccount } from './openrouter.ts'
 
 /**
  * Провайдеры моделей. Все говорят на одном языке — формате OpenAI chat/completions,
@@ -18,6 +20,17 @@ export type Provider = {
   keysUrl: string
   /** Первая — по умолчанию */
   models: ModelInfo[]
+  /**
+   * Как выглядит ключ. По нему бот узнаёт ключ, вставленный в чат не по запросу, и не
+   * переводит его. Нет — ключ заранее не опознать (локальная модель).
+   */
+  keyPattern?: RegExp
+  /** Подсказка «он начинается с …», когда прислали не ключ */
+  keyHint?: string
+  /** Где пополнить баланс */
+  topUpUrl?: string
+  /** Счёт, который видит бот: остаток, траты, цены. Нет — смотреть в кабинете провайдера. */
+  account?: (http: Http) => ProviderAccount
 }
 
 export const PROVIDERS: Provider[] = [
@@ -27,6 +40,10 @@ export const PROVIDERS: Provider[] = [
     baseUrl: 'https://openrouter.ai/api/v1',
     envKey: 'OPENROUTER_API_KEY',
     keysUrl: 'https://openrouter.ai/keys',
+    keyPattern: /sk-or-v1-[0-9a-f]{64}/,
+    keyHint: 'он начинается с sk-or-v1-',
+    topUpUrl: 'https://openrouter.ai/settings/credits',
+    account: createOpenRouterAccount,
     // Первая — дефолт новой установки: замер 2026-10-12 (scripts/eval-injection.ts) — лучшая
     // стойкость к подмене (62 из 63) и в 4 раза дешевле gpt-4.1-mini. GPT-5.6 Luna (59) и
     // Gemini 3.1 Flash Lite (60) — из того же замера. gemini-2.5-flash OpenRouter убирает
@@ -45,6 +62,9 @@ export const PROVIDERS: Provider[] = [
     baseUrl: 'https://api.deepseek.com/v1',
     envKey: 'DEEPSEEK_API_KEY',
     keysUrl: 'https://platform.deepseek.com/api_keys',
+    // Шаблон длинный нарочно: «sk-» в обычной фразе («sk-board») ключом не считается.
+    keyPattern: /\bsk-[A-Za-z0-9]{32,}/,
+    keyHint: 'он начинается с sk-',
     models: [{ id: 'deepseek-chat', title: 'DeepSeek Chat' }],
   },
   {
@@ -53,6 +73,8 @@ export const PROVIDERS: Provider[] = [
     baseUrl: 'https://api.moonshot.ai/v1',
     envKey: 'MOONSHOT_API_KEY',
     keysUrl: 'https://platform.moonshot.ai/console/api-keys',
+    keyPattern: /\bsk-[A-Za-z0-9]{32,}/,
+    keyHint: 'он начинается с sk-',
     models: [{ id: 'kimi-k2-0905-preview', title: 'Kimi K2' }],
   },
   {
@@ -61,6 +83,8 @@ export const PROVIDERS: Provider[] = [
     baseUrl: 'https://api.groq.com/openai/v1',
     envKey: 'GROQ_API_KEY',
     keysUrl: 'https://console.groq.com/keys',
+    keyPattern: /\bgsk_[A-Za-z0-9]{40,}/,
+    keyHint: 'он начинается с gsk_',
     models: [{ id: 'llama-3.3-70b-versatile', title: 'Llama 3.3 70B' }],
   },
   {
@@ -77,6 +101,11 @@ export const PROVIDERS: Provider[] = [
 export const PROVIDER_DEFAULTS: Record<string, string> = {
   [SETTING.provider]: PROVIDERS[0]!.id,
   [SETTING.model]: PROVIDERS[0]!.models[0]!.id,
+}
+
+/** Ключ любого провайдера по виду: текст, где он есть, бот не переводит и никому не отправляет. */
+export function looksLikeKey(text: string): boolean {
+  return PROVIDERS.some((provider) => provider.keyPattern?.test(text))
 }
 
 export function getProvider(id: string | undefined): Provider {
