@@ -9,6 +9,7 @@ import {
   resolveModel,
   type Provider,
   type ProviderKey,
+  type ReadyModel,
   type ResolvedModel,
 } from './translate/providers.ts'
 import type { Address } from './types.ts'
@@ -22,8 +23,14 @@ export type Config = {
   languages: LanguagePair | null
   languagesProblem: string | null
   address: Address
-  /** Провайдер, выбранный в панели. Переводит он же, если у него есть ключ, — иначе model скажет кто */
+  /** Провайдер, выбранный в панели. Переводит он же, если у него есть ключ, — иначе см. active */
   provider: Provider
+  /**
+   * Провайдер, который переводит на деле: выбранный, а если у него нет ключа — тот, у кого
+   * есть. Ключа нет ни у кого — выбранный: его ключ панель и попросит. Считается здесь
+   * один раз, чтобы экраны не выводили правило каждый по-своему.
+   */
+  active: Provider
   /** Ключи по id провайдера: какой и откуда — из .env или из панели */
   keys: Readonly<Record<string, ProviderKey>>
   /** Адрес локальной модели из .env */
@@ -35,8 +42,6 @@ export type Config = {
 }
 
 export type ConfigEnv = { providerKeys: Record<string, string>; localBaseUrl?: string }
-
-type ReadyModel = Extract<ResolvedModel, { ok: true }>
 
 function realTranslator(model: ReadyModel, fetchImpl?: typeof fetch): Translator {
   return createTranslator({
@@ -79,17 +84,20 @@ export function createConfig(deps: {
       get(SETTING.peerLang) ?? LANGUAGE_DEFAULTS[SETTING.peerLang]!,
     )
     const panelKeys = deps.store.panelKeys(ownerId)
-    const model = resolveModel({ provider: get(SETTING.provider), model: get(SETTING.model) }, deps.env, panelKeys)
+    const providerId = get(SETTING.provider)
+    const provider = getProvider(providerId)
+    const model = resolveModel({ provider: providerId, model: get(SETTING.model) }, deps.env, panelKeys)
     const keys: Record<string, ProviderKey> = {}
-    for (const provider of PROVIDERS) {
-      const key = providerKey(provider, deps.env.providerKeys, panelKeys)
-      if (key) keys[provider.id] = key
+    for (const candidate of PROVIDERS) {
+      const key = providerKey(candidate, deps.env.providerKeys, panelKeys)
+      if (key) keys[candidate.id] = key
     }
     return {
       languages: pair.ok ? pair.pair : null,
       languagesProblem: pair.ok ? null : pair.problem,
       address: get(SETTING.address) === 'formal' ? 'formal' : 'as-is',
-      provider: getProvider(get(SETTING.provider)),
+      provider,
+      active: model.ok ? model.provider : provider,
       keys,
       localBaseUrl: deps.env.localBaseUrl,
       model,

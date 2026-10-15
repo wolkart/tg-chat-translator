@@ -199,7 +199,7 @@ test('снимок счёта живёт минуту: повторное отк
   assert.equal(ctx.accounts.calls.balance.length, 2)
 })
 
-test('экраны языков, обращения и ключа не спрашивают ни Telegram, ни провайдера; модель — без getMe', async () => {
+test('экраны языков, обращения и ключа не спрашивают ни Telegram, ни провайдера; модель — только цены; баланс — без getMe', async () => {
   const ctx = setupDeps({ live: true, envKeys: {} })
   ctx.store.setSetting(OWNER_ID, keySetting('openrouter'), TEST_KEY)
   const panel = await openPanel(ctx)
@@ -213,6 +213,9 @@ test('экраны языков, обращения и ключа не спра�
     assert.equal(ctx.accounts.calls.balance.length, 1, data)
   }
   await panel.press('p:model')
+  assert.equal(ctx.tg.callsOf('getMe').length, 1)
+  assert.equal(ctx.accounts.calls.balance.length, 1)
+  await panel.press('p:bal')
   assert.equal(ctx.tg.callsOf('getMe').length, 1)
   assert.equal(ctx.accounts.calls.balance.length, 2)
   // Главный экран — снова с getMe: на нём строка BotFather.

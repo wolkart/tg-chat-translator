@@ -4,19 +4,10 @@ import { switchProvider } from '../../../settings.ts'
 import { SETTING } from '../../../store.ts'
 import type { InlineButton } from '../../../telegram.ts'
 import { translationCost } from '../../../translate/cost.ts'
-import { PROVIDERS, type Provider } from '../../../translate/providers.ts'
+import { PROVIDERS } from '../../../translate/providers.ts'
 import { pasteScreen } from '../key-input.ts'
 import { BACK, action, backTo, type PanelContext, type Screen, type Section } from '../screen.ts'
 import { modelLeaving } from '../status.ts'
-
-/** Провайдер, который переводит сейчас: выбранный, а если у него нет ключа — тот, у кого есть. */
-function activeProvider(ctx: PanelContext): Provider {
-  return ctx.config.model.ok ? ctx.config.model.provider : ctx.config.provider
-}
-
-function currentModel(ctx: PanelContext, provider: Provider): string {
-  return ctx.config.model.ok ? ctx.config.model.model : provider.models[0]!.id
-}
 
 /** Кнопка модели устарела: провайдера сменили, или данные кнопки чужие. */
 const MODELS_CHANGED = 'Список моделей обновился — выберите ещё раз'
@@ -26,7 +17,7 @@ const MODELS_CHANGED = 'Список моделей обновился — вы�
  * сначала попросит ключ, иначе переводы встали бы до того, как ключ появится.
  */
 function providersScreen(ctx: PanelContext): Screen {
-  const current = activeProvider(ctx)
+  const current = ctx.config.active
   const buttons = PROVIDERS.map(
     (provider): InlineButton[] => [
       {
@@ -51,12 +42,14 @@ function providersScreen(ctx: PanelContext): Screen {
 export const MODEL: Section = {
   id: 'model',
   button: '🤖 Модель',
-  needs: { account: true },
+  // Экрану нужны только цены: баланс и проверка ключа — лишние запросы к провайдеру.
+  needs: { prices: true },
 
   render(ctx) {
-    const provider = activeProvider(ctx)
-    const current = currentModel(ctx, provider)
-    const prices = ctx.account?.prices ?? null
+    const { active: provider, model: resolved } = ctx.config
+    // Ключа нет ни у кого — переводить нечем, но список выбранного провайдера показать можно.
+    const current = resolved.ok ? resolved.model : provider.models[0]!.id
+    const { prices } = ctx
     const lines = [
       `<b>🤖 Модель</b> · ${escapeHtml(provider.label)}`,
       '',
@@ -92,7 +85,7 @@ export const MODEL: Section = {
       // Номер, а не id: в id моделей бывают «:» и «/», а данные кнопки ограничены 64 байтами.
       // Рядом — id провайдера: старая кнопка с экрана другого провайдера иначе выбрала бы
       // модель с тем же номером у нынешнего. Number('') — это 0, поэтому номер — только цифры.
-      const provider = activeProvider(ctx)
+      const provider = ctx.config.active
       const [, providerId, index] = /^([^:]+):(\d+)$/.exec(arg) ?? []
       const model = providerId === provider.id ? provider.models[Number(index)] : undefined
       if (!model) return { show: 'section', toast: MODELS_CHANGED }
@@ -110,7 +103,7 @@ export const MODEL: Section = {
         return { show: pasteScreen(provider, action('model', 'prov')) }
       }
       // Уже включён: переключение сбросило бы выбранную модель на первую из списка.
-      if (provider.id === activeProvider(ctx).id) return { show: 'section', toast: `Уже ${provider.label}` }
+      if (provider.id === ctx.config.active.id) return { show: 'section', toast: `Уже ${provider.label}` }
       switchProvider(store, ctx.ownerId, provider)
       return { show: 'section', toast: `Теперь ${provider.label}` }
     }

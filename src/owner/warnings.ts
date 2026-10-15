@@ -1,10 +1,10 @@
 import type { Deps } from '../deps.ts'
-import { dayMonth, money, plural, roughly, spaced, utcDay } from '../format.ts'
+import { dayMonth, money, utcDay } from '../format.ts'
 import { DAY, HOUR, warnedSetting } from '../store.ts'
 import { describeError } from '../telegram.ts'
 import type { Balance, ModelPrice } from '../translate/account.ts'
-import { translationsLeft } from '../translate/cost.ts'
-import type { KeySource, Provider } from '../translate/providers.ts'
+import { translationsPhrase } from '../translate/cost.ts'
+import type { KeySource, Provider, ReadyModel } from '../translate/providers.ts'
 
 /** За сколько предупреждать: ключ — за 3 дня, модель — за 14, деньги — когда меньше $1. */
 export const KEY_EXPIRY_MS = 3 * DAY
@@ -26,15 +26,30 @@ export type WarningInput = {
   now: number
 }
 
+/** Вход предупреждений из модели, которая переводит, и счёта её провайдера: одна сборка для лички и экрана баланса. */
+export function warningInput(
+  model: ReadyModel,
+  balance: Balance | null,
+  prices: ReadonlyMap<string, ModelPrice> | null,
+  now: number,
+): WarningInput {
+  return {
+    provider: model.provider,
+    keySource: model.keySource,
+    modelTitle: model.title,
+    balance,
+    price: prices?.get(model.model),
+    now,
+  }
+}
+
 /** Предупреждение — строка реестра: вид (для «сегодня уже было») и текст, null — повода нет. */
 export type AccountWarning = { kind: string; text(input: WarningInput): string | null }
 
 /** «— это примерно 6 000 переводов»; цены нет или перевод не посчитать — без этой части. */
 function leftPart(usd: number, price: ModelPrice | undefined): string {
-  const left = price ? translationsLeft(usd, price) : null
-  if (left === null) return ''
-  const rough = roughly(left)
-  return ` — это примерно ${spaced(rough)} ${plural(rough, ['перевод', 'перевода', 'переводов'])}`
+  const phrase = price ? translationsPhrase(usd, price) : null
+  return phrase ? ` — это примерно ${phrase}` : ''
 }
 
 const KEY_EXPIRY: AccountWarning = {
@@ -90,16 +105,8 @@ export async function checkWarnings(deps: Deps, ownerId: number): Promise<void> 
   const account = deps.accounts.of(model.provider)
   if (!account) return
   const [balance, prices] = await Promise.all([account.balance(model.apiKey), account.prices()])
-  const now = deps.now()
-  const input: WarningInput = {
-    provider: model.provider,
-    keySource: model.keySource,
-    modelTitle: model.title,
-    balance,
-    price: prices?.get(model.model),
-    now,
-  }
-  const today = utcDay(now)
+  const input = warningInput(model, balance, prices, deps.now())
+  const today = utcDay(input.now)
   for (const warning of ACCOUNT_WARNINGS) {
     const text = warning.text(input)
     if (!text) continue

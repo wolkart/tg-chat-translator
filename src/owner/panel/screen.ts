@@ -8,14 +8,8 @@ import type { Connection } from '../../types.ts'
 export type Screen = { html: string; keyboard: InlineButton[][] }
 
 /**
- * Счёт провайдера в момент показа: баланс и цены, каждое может быть не узнать. rejected —
- * провайдер не принял ключ: остаток тоже не узнать, но чинить надо ключ, а не ждать связи.
- */
-export type AccountSnapshot = KeyState & { prices: ReadonlyMap<string, ModelPrice> | null }
-
-/**
- * Всё, что нужно экранам, собирается один раз на показ. getMe и счёт — запросы наружу, и
- * грузятся они только под экран, которому нужны (см. Section.needs).
+ * Всё, что нужно экранам, собирается один раз на показ. getMe, счёт и цены — запросы наружу,
+ * и грузятся они только под экран, которому нужны (см. Section.needs).
  */
 export type PanelContext = {
   ownerId: number
@@ -24,18 +18,29 @@ export type PanelContext = {
   /** Свежий getMe — только для главного экрана; null — не спрашивали или Telegram не ответил */
   me: BotInfo | null
   /**
-   * Счёт провайдера, который сейчас переводит, — для главного экрана и разделов с
-   * needs.account; null — не спрашивали, бот его не видит или ключа нет
+   * Счёт провайдера, который сейчас переводит: баланс (может быть не узнать) и rejected —
+   * провайдер не принял ключ: остаток тоже не узнать, но чинить надо ключ, а не ждать связи.
+   * Для главного экрана и разделов с needs.account; null — не спрашивали, бот его не видит
+   * или ключа нет
    */
-  account: AccountSnapshot | null
+  account: KeyState | null
+  /**
+   * Цены моделей того же провайдера — для главного экрана и разделов с needs.account или
+   * needs.prices; null — не спрашивали, бот их не видит, ключа нет или цены не узнать
+   */
+  prices: ReadonlyMap<string, ModelPrice> | null
   /** Будет ли под переводом кнопка «Отправить через бота» — только для главного экрана */
   inline: boolean
   dry: boolean
   now: number
 }
 
-/** Что показать после нажатия: главный экран, экран раздела заново или готовый экран. */
-export type Outcome = { show: 'main' | 'section' | Screen; toast?: string }
+/**
+ * Что показать после нажатия: главный экран, экран раздела заново или готовый экран.
+ * fresh — «🔄 Обновить»: снимок счёта свежий, мимо минутного кэша, а если экран не
+ * изменился, всплывает «Без изменений» — иначе нажатие выглядело бы несработавшим.
+ */
+export type Outcome = { show: 'main' | 'section' | Screen; toast?: string; fresh?: boolean }
 
 /** Бот ждёт ключ этого провайдера. switchProvider — после сохранения переключиться на него. */
 export type KeyWait = { providerId: string; until: number; switchProvider: boolean }
@@ -59,15 +64,16 @@ export type Section = {
   /** Кнопка на главном экране */
   button: string
   /**
-   * Нужен ли экрану раздела счёт провайдера. Это запрос к провайдеру до 10 секунд, а апдейты
-   * Telegram бот разбирает по одному: медленный провайдер на любом нажатии задержал бы и
-   * переводы. Поэтому счёт получают только разделы, которые его попросили.
+   * Что нужно экрану раздела от провайдера: account — счёт целиком (баланс, проверка ключа
+   * и цены), prices — только цены. Это запросы до 10 секунд, а апдейты Telegram бот разбирает
+   * по одному: медленный провайдер на любом нажатии задержал бы и переводы. Поэтому их
+   * получают только разделы, которые попросили, и ровно то, что попросили.
    */
-  needs?: { account?: boolean }
+  needs?: { account?: boolean; prices?: boolean }
   render(ctx: PanelContext, env: SectionEnv): Screen
   /**
-   * Нажатие внутри раздела: «p:<id>:<action>[:<arg>]». В ctx — только настройки: getMe и счёт
-   * грузятся после, под экран, который покажут.
+   * Нажатие внутри раздела: «p:<id>:<action>[:<arg>]». В ctx — только настройки: getMe, счёт
+   * и цены грузятся после, под экран, который покажут.
    */
   act?(ctx: PanelContext, env: SectionEnv, action: string, arg: string): Outcome | Promise<Outcome>
 }
@@ -83,12 +89,13 @@ export function action(...parts: string[]): string {
 export const MAIN = action('main')
 export const REFRESH = action('refresh')
 
-export const BACK: InlineButton = { text: '← Назад', data: MAIN }
-
 /** «Назад» внутри раздела — к его первому экрану. */
 export function backTo(sectionId: string): InlineButton {
   return { text: '← Назад', data: action(sectionId) }
 }
+
+/** «Назад» из раздела — к главному экрану. */
+export const BACK: InlineButton = backTo('main')
 
 /** Кнопки по n в ряд. */
 export function rows<T>(items: readonly T[], size: number): T[][] {

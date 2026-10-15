@@ -13,6 +13,11 @@ export function fixture(name: string): Update {
   return JSON.parse(readFileSync(new URL(`./fixtures/${name}.json`, import.meta.url), 'utf8')) as Update
 }
 
+/** Ответ сети с JSON-телом — для подделок fetch: сеть в тестах не вызывается. */
+export function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+}
+
 /** Сообщение из образца: business_message или message. */
 export function messageFixture(name: string): Message {
   const update = fixture(name)

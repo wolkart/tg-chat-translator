@@ -91,6 +91,8 @@ export function toPrices(data: unknown): Map<string, ModelPrice> {
  */
 export function createOpenRouterAccount(http: Http): ProviderAccount {
   let cached: { at: number; prices: Map<string, ModelPrice> } | null = null
+  /** Запрос /models, который уже в пути: два показа на холодном кэше ждут один ответ. */
+  let loading: Promise<Map<string, ModelPrice> | null> | null = null
 
   async function get(path: string, key?: string): Promise<Response | null> {
     try {
@@ -101,6 +103,21 @@ export function createOpenRouterAccount(http: Http): ProviderAccount {
     } catch {
       return null
     }
+  }
+
+  /** Неудачу не кэшируем: следующий показ панели спросит снова. */
+  async function loadPrices(): Promise<Map<string, ModelPrice> | null> {
+    const response = await get('/models')
+    if (!response?.ok) return null
+    let body: { data?: unknown }
+    try {
+      body = (await response.json()) as { data?: unknown }
+    } catch {
+      return null
+    }
+    const prices = toPrices(body.data)
+    cached = { at: http.now(), prices }
+    return prices
   }
 
   async function check(key: string): Promise<KeyCheck> {
@@ -122,18 +139,10 @@ export function createOpenRouterAccount(http: Http): ProviderAccount {
     },
     async prices() {
       if (cached && http.now() - cached.at < PRICES_TTL_MS) return cached.prices
-      // Неудачу не кэшируем: следующий показ панели спросит снова.
-      const response = await get('/models')
-      if (!response?.ok) return null
-      let body: { data?: unknown }
-      try {
-        body = (await response.json()) as { data?: unknown }
-      } catch {
-        return null
-      }
-      const prices = toPrices(body.data)
-      cached = { at: http.now(), prices }
-      return prices
+      loading ??= loadPrices().finally(() => {
+        loading = null
+      })
+      return loading
     },
   }
 }

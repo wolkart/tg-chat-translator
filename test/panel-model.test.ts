@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { sendOwnerReply } from '../src/channels/private-chat/outgoing.ts'
-import { createPanel } from '../src/owner/panel/panel.ts'
+import { ACCOUNT_CACHE_MS, createPanel } from '../src/owner/panel/panel.ts'
 import { SETTING, keySetting } from '../src/store.ts'
 import { PROVIDERS } from '../src/translate/providers.ts'
 import { SAMPLE_BALANCE, samplePrices } from './fakes.ts'
@@ -33,6 +33,20 @@ test('экран модели: модели OpenRouter с ценой за 1000 �
     screen.keyboard.slice(0, 4).map((row) => row[0]!.text),
     ['✅ Claude Haiku 5.5 · $0,14', 'GPT-5.6 Luna · $0,29', 'Gemini 3.1 Flash Lite · $0,36', 'DeepSeek V4 Flash · $0,12'],
   )
+})
+
+test('экран модели спрашивает у провайдера только цены — без баланса и проверки ключа', async () => {
+  const ctx = setupDeps({ live: true })
+  const panel = await openPanel(ctx)
+  // Снимок счёта устарел: экран, которому нужен счёт, спросил бы /key и /credits заново.
+  ctx.advance(ACCOUNT_CACHE_MS)
+  const balanceBefore = ctx.accounts.calls.balance.length
+  const pricesBefore = ctx.accounts.calls.prices
+  const screen = await panel.tap('🤖 Модель')
+  assert.equal(ctx.accounts.calls.balance.length, balanceBefore)
+  assert.equal(ctx.accounts.calls.verify.length, 0)
+  assert.equal(ctx.accounts.calls.prices, pricesBefore + 1)
+  assert.ok(findButton(screen.keyboard, '✅ Claude Haiku 5.5 · $0,14'))
 })
 
 test('спека: владелец выбирает другую модель — следующий перевод через неё', async () => {

@@ -42,6 +42,11 @@ export function dayMonth(ms: number): string {
   return `${date.getUTCDate()} ${MONTHS[date.getUTCMonth()]}`
 }
 
+/** Срок ключа: «бессрочный» или «действует до 16 октября» — одна формулировка для главного экрана и баланса. */
+export function expiryTerm(expiresAt: number | null): string {
+  return expiresAt === null ? 'бессрочный' : `действует до ${dayMonth(expiresAt)}`
+}
+
 /** Дата по UTC, «2026-10-15»: метка «сегодня уже предупреждали». */
 export function utcDay(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10)

@@ -22,18 +22,26 @@ export type Provider = {
   models: ModelInfo[]
   /**
    * Как выглядит ключ. По нему бот узнаёт ключ, вставленный в чат не по запросу, и не
-   * переводит его. Нет — ключ заранее не опознать (локальная модель).
+   * переводит его. Нет — ключ заранее не опознать (локальная модель). Без флага g: шаблон
+   * берёт exec, а у шаблона с g exec помнит, где остановился в прошлый раз.
    */
   keyPattern?: RegExp
-  /** С чего начинается ключ: его и показывает огрызок ключа («sk-or-v1-…a3f9») */
+  /**
+   * С чего начинается ключ: его показывает огрызок ключа («sk-or-v1-…a3f9») и подсказка
+   * «он начинается с …», когда прислали не ключ
+   */
   keyPrefix?: string
-  /** Подсказка «он начинается с …», когда прислали не ключ */
-  keyHint?: string
   /** Где пополнить баланс */
   topUpUrl?: string
   /** Счёт, который видит бот: остаток, траты, цены. Нет — смотреть в кабинете провайдера. */
   account?: (http: Http) => ProviderAccount
 }
+
+/**
+ * Ключи DeepSeek и Kimi выглядят одинаково. Шаблон длинный нарочно: «sk-» в обычной фразе
+ * («sk-board») ключом не считается.
+ */
+const SK_KEY = { keyPattern: /\bsk-[A-Za-z0-9]{32,}/, keyPrefix: 'sk-' }
 
 export const PROVIDERS: Provider[] = [
   {
@@ -44,7 +52,6 @@ export const PROVIDERS: Provider[] = [
     keysUrl: 'https://openrouter.ai/keys',
     keyPattern: /sk-or-v1-[0-9a-f]{64}/,
     keyPrefix: 'sk-or-v1-',
-    keyHint: 'он начинается с sk-or-v1-',
     topUpUrl: 'https://openrouter.ai/settings/credits',
     account: createOpenRouterAccount,
     // Первая — дефолт новой установки: замер 2026-10-12 (scripts/eval-injection.ts) — лучшая
@@ -65,10 +72,7 @@ export const PROVIDERS: Provider[] = [
     baseUrl: 'https://api.deepseek.com/v1',
     envKey: 'DEEPSEEK_API_KEY',
     keysUrl: 'https://platform.deepseek.com/api_keys',
-    // Шаблон длинный нарочно: «sk-» в обычной фразе («sk-board») ключом не считается.
-    keyPattern: /\bsk-[A-Za-z0-9]{32,}/,
-    keyPrefix: 'sk-',
-    keyHint: 'он начинается с sk-',
+    ...SK_KEY,
     models: [{ id: 'deepseek-chat', title: 'DeepSeek Chat' }],
   },
   {
@@ -77,9 +81,7 @@ export const PROVIDERS: Provider[] = [
     baseUrl: 'https://api.moonshot.ai/v1',
     envKey: 'MOONSHOT_API_KEY',
     keysUrl: 'https://platform.moonshot.ai/console/api-keys',
-    keyPattern: /\bsk-[A-Za-z0-9]{32,}/,
-    keyPrefix: 'sk-',
-    keyHint: 'он начинается с sk-',
+    ...SK_KEY,
     models: [{ id: 'kimi-k2-0905-preview', title: 'Kimi K2' }],
   },
   {
@@ -90,7 +92,6 @@ export const PROVIDERS: Provider[] = [
     keysUrl: 'https://console.groq.com/keys',
     keyPattern: /\bgsk_[A-Za-z0-9]{40,}/,
     keyPrefix: 'gsk_',
-    keyHint: 'он начинается с gsk_',
     models: [{ id: 'llama-3.3-70b-versatile', title: 'Llama 3.3 70B' }],
   },
   {
@@ -114,9 +115,22 @@ export function providerBaseUrl(provider: Provider, localBaseUrl: string | undef
   return provider.id === 'local' && localBaseUrl ? localBaseUrl : provider.baseUrl
 }
 
+/**
+ * Шаблоны ключей для поиска по всему тексту: каждый — один раз (у DeepSeek и Kimi он общий) и
+ * с флагом g, без которого matchAll не работает. Собраны заранее, а не на каждое сообщение.
+ */
+const KEY_SEARCHES = [...new Set(PROVIDERS.flatMap((provider) => provider.keyPattern ?? []))].map(
+  (pattern) => new RegExp(pattern.source, `${pattern.flags}g`),
+)
+
+/** Все ключи любых провайдеров в тексте, без повторов: их надо укрыть в консоли, даже чужие. */
+export function findKeys(text: string): string[] {
+  return [...new Set(KEY_SEARCHES.flatMap((pattern) => [...text.matchAll(pattern)].map((match) => match[0])))]
+}
+
 /** Ключ любого провайдера по виду: текст, где он есть, бот не переводит и никому не отправляет. */
 export function looksLikeKey(text: string): boolean {
-  return PROVIDERS.some((provider) => provider.keyPattern?.test(text))
+  return findKeys(text).length > 0
 }
 
 export function getProvider(id: string | undefined): Provider {
@@ -156,6 +170,9 @@ export type ResolvedModel =
       baseUrl: string
     }
   | { ok: false; problem: string }
+
+/** Модель, которой есть чем переводить: ключ найден. */
+export type ReadyModel = Extract<ResolvedModel, { ok: true }>
 
 /**
  * Какой провайдер и модель использовать. Ключ — из .env или из панели. Если у выбранного

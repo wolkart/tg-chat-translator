@@ -1,6 +1,7 @@
 import type { Deps } from '../../deps.ts'
 import { describeError, isNotModified, type BotInfo, type InlineButton } from '../../telegram.ts'
-import { keyState } from '../../translate/account.ts'
+import { keyState, type KeyState, type ModelPrice } from '../../translate/account.ts'
+import type { ResolvedModel } from '../../translate/providers.ts'
 import { createKeyWaits, onKeyText, type VerifiedKey } from './key-input.ts'
 import { SECTIONS } from './sections/index.ts'
 import {
@@ -9,7 +10,6 @@ import {
   REFRESH,
   action,
   rows,
-  type AccountSnapshot,
   type Outcome,
   type PanelContext,
   type Screen,
@@ -21,23 +21,25 @@ import { statusLines } from './status.ts'
 /** Сколько живёт снимок счёта: хождение по экранам не дёргает провайдера на каждое нажатие. */
 export const ACCOUNT_CACHE_MS = 60 * 1000
 
+/** Снимок счёта в кэше панели: баланс с вердиктом по ключу и цены, каждое может быть не узнать. */
+type AccountSnapshot = KeyState & { prices: ReadonlyMap<string, ModelPrice> | null }
+
 /** Снимок счёта — на пару «провайдер, ключ»: новый ключ не получит остаток старого. */
 function snapshotKey(providerId: string, key: string): string {
   return `${providerId}:${key}`
 }
 
-/** Что грузить под экран сверх настроек. */
-type Needs = { me?: boolean; account?: boolean }
+/** Что грузить под экран сверх настроек: разделу — его needs, главному экрану — ещё и getMe. */
+type Needs = NonNullable<Section['needs']> & { me?: boolean }
 
 /** Главному экрану — всё: на нём строки BotFather, ключа с остатком и цена модели. */
 const MAIN_NEEDS: Needs = { me: true, account: true }
 
-/** Что грузить под итог нажатия; null — экран уже готов, грузить нечего. */
-function needsOf(outcome: Outcome, section: Section | undefined): Needs | null {
-  if (outcome.show === 'main') return MAIN_NEEDS
-  if (outcome.show === 'section') return { account: section?.needs?.account ?? false }
-  return null
-}
+/** Кнопки главного экрана: показать его, а «🔄 Обновить» — со свежим снимком счёта. */
+const MAIN_OUTCOMES: ReadonlyMap<string, Outcome> = new Map([
+  [MAIN, { show: 'main' }],
+  [REFRESH, { show: 'main', fresh: true }],
+])
 
 export const NOT_CHANGED = 'Без изменений'
 
@@ -88,8 +90,7 @@ export function createPanel(deps: Deps): Panel {
     }
   }
 
-  async function accountOf(ctx: Pick<PanelContext, 'config'>, fresh: boolean): Promise<AccountSnapshot | null> {
-    const { model } = ctx.config
+  async function accountOf(model: ResolvedModel, fresh: boolean): Promise<AccountSnapshot | null> {
     if (!model.ok) return null
     const account = deps.accounts.of(model.provider)
     if (!account) return null
@@ -114,16 +115,32 @@ export function createPanel(deps: Deps): Panel {
     accounts.set(snapshotKey(provider.id, key), { at: deps.now(), snapshot: { balance, rejected: false, prices } })
   }
 
-  /** Настройки читаются всегда; getMe и счёт — только если экрану они нужны. */
+  /**
+   * Только цены, без /key и /credits: экрану модели баланс не нужен. Свой кэш цен у счёта
+   * провайдера (у OpenRouter — на час), поэтому снимок панели здесь не участвует.
+   */
+  async function pricesOf(model: ResolvedModel): Promise<ReadonlyMap<string, ModelPrice> | null> {
+    if (!model.ok) return null
+    const account = deps.accounts.of(model.provider)
+    return account ? account.prices() : null
+  }
+
+  /** Настройки читаются всегда; getMe, счёт и цены — только если экрану они нужны. */
   async function context(ownerId: number, needs: Needs = {}, fresh = false): Promise<PanelContext> {
     const config = deps.config(ownerId)
-    const [me, account] = await Promise.all([needs.me ? botInfo() : null, needs.account ? accountOf({ config }, fresh) : null])
+    const [me, snapshot, prices] = await Promise.all([
+      needs.me ? botInfo() : null,
+      needs.account ? accountOf(config.model, fresh) : null,
+      // Счёт целиком цены уже несёт: отдельный запрос — только экрану, которому нужны лишь они.
+      needs.prices && !needs.account ? pricesOf(config.model) : null,
+    ])
     return {
       ownerId,
       config,
       connection: deps.store.ownerConnection(ownerId),
       me,
-      account,
+      account: snapshot && { balance: snapshot.balance, rejected: snapshot.rejected },
+      prices: snapshot ? snapshot.prices : prices,
       inline: needs.me ? (me ? me.supportsInlineQueries : await deps.inlineEnabled()) : false,
       dry: deps.dry,
       now: deps.now(),
@@ -145,10 +162,33 @@ export function createPanel(deps: Deps): Panel {
   }
 
   /** Что показать по данным кнопки. null — кнопка не наша или устарела: ничего не меняем. */
-  async function outcomeOf(ctx: PanelContext, section: Section | undefined, act: string | undefined, arg: string): Promise<Outcome | null> {
+  async function outcomeOf(
+    ownerId: number,
+    data: string,
+    section: Section | undefined,
+    act: string | undefined,
+    arg: string,
+  ): Promise<Outcome | null> {
+    // Главному экрану настройки для действия не нужны: всё своё он грузит под показ.
+    const main = MAIN_OUTCOMES.get(data)
+    if (main) return main
     if (!section) return null
     if (act === undefined) return { show: 'section' }
-    return section.act ? section.act(ctx, env, act, arg) : null
+    if (!section.act) return null
+    // Действию хватает настроек: getMe, счёт и цены грузятся после, под экран, который покажут.
+    return section.act(await context(ownerId), env, act, arg)
+  }
+
+  /**
+   * Экран по итогу нажатия. Настройки читаются заново: действие могло их поменять, и экран
+   * рисуется по свежим. Готовому экрану грузить нечего.
+   */
+  async function screenOf(ownerId: number, outcome: Outcome, section: Section | undefined): Promise<Screen> {
+    const fresh = outcome.fresh ?? false
+    if (outcome.show === 'main') return mainScreen(await context(ownerId, MAIN_NEEDS, fresh))
+    // Итог «раздел» бывает только у нажатия внутри раздела — section здесь есть.
+    if (outcome.show === 'section') return section!.render(await context(ownerId, section!.needs, fresh), env)
+    return outcome.show
   }
 
   const panel: Panel = {
@@ -168,31 +208,20 @@ export function createPanel(deps: Deps): Panel {
       // Любое нажатие панели снимает ожидание ключа: «Вставить ключ» начнёт его заново.
       env.waits.cancel(ownerId)
       const [sectionId = '', act, ...rest] = callback.data.slice(PANEL_PREFIX.length).split(':')
-      // «🔄 Обновить» на главном и на экране баланса: снимок счёта — свежий.
-      const refresh = callback.data === REFRESH || act === 'refresh'
       const section = SECTIONS.find((candidate) => candidate.id === sectionId)
-      // Действию хватает настроек: getMe и счёт грузятся ниже, под экран, который покажут.
-      const base = await context(ownerId)
-
-      let outcome: Outcome | null
-      if (callback.data === MAIN || callback.data === REFRESH) outcome = { show: 'main' }
-      else outcome = await outcomeOf(base, section, act, rest.join(':'))
+      const outcome = await outcomeOf(ownerId, callback.data, section, act, rest.join(':'))
       if (!outcome || callback.messageId === undefined) {
         await deps.api.answerCallback(callback.id)
         return
       }
 
-      // Настройки читаются заново: действие могло их поменять, и экран рисуется по свежим.
-      const needs = needsOf(outcome, section)
-      const ctx = needs ? await context(ownerId, needs, refresh) : base
-      const screen =
-        outcome.show === 'main' ? mainScreen(ctx) : outcome.show === 'section' ? section!.render(ctx, env) : outcome.show
+      const screen = await screenOf(ownerId, outcome, section)
       let toast = outcome.toast
       try {
         await deps.api.editText(ownerId, callback.messageId, screen.html, { html: true, keyboard: screen.keyboard })
       } catch (error) {
         if (isNotModified(error)) {
-          if (refresh) toast = NOT_CHANGED
+          if (outcome.fresh) toast = NOT_CHANGED
         } else {
           await resend(ownerId, screen)
         }

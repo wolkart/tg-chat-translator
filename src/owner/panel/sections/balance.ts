@@ -1,8 +1,8 @@
-import { dayMonth, money, plural, roughly, spaced } from '../../../format.ts'
+import { expiryTerm, money } from '../../../format.ts'
 import { escapeHtml } from '../../../html.ts'
 import type { Balance, ModelPrice } from '../../../translate/account.ts'
-import { translationCost, translationsLeft } from '../../../translate/cost.ts'
-import { warningTexts } from '../../warnings.ts'
+import { translationCost, translationsPhrase } from '../../../translate/cost.ts'
+import { warningInput, warningTexts } from '../../warnings.ts'
 import { BACK, action, type Section } from '../screen.ts'
 
 const REFRESH_BALANCE = { text: '🔄 Обновить', data: action('bal', 'refresh') }
@@ -24,10 +24,8 @@ function remainingLine(balance: Balance): string {
  * цена битая — без этой части: деление на ноль дало бы «NaN переводов».
  */
 function enoughPart(remaining: number | null, price: ModelPrice): string {
-  const left = remaining === null ? null : translationsLeft(remaining, price)
-  if (left === null) return ''
-  const n = roughly(left)
-  return ` — на остаток хватит примерно на ${spaced(n)} ${plural(n, ['перевод', 'перевода', 'переводов'])}`
+  const phrase = remaining === null ? null : translationsPhrase(remaining, price)
+  return phrase ? ` — на остаток хватит примерно на ${phrase}` : ''
 }
 
 /** Баланс провайдера, который сейчас переводит. Видит бот его только у провайдеров со счётом. */
@@ -46,7 +44,8 @@ export const BALANCE: Section = {
         keyboard: [[BACK]],
       }
     }
-    const { balance, prices, rejected } = ctx.account
+    const { balance, rejected } = ctx.account
+    const { prices } = ctx
     if (rejected) {
       // Не «нет связи»: обновлять бесполезно, пока ключ не заменят. Ключ из .env панель не заменит.
       const how = model.keySource === 'env' ? `Проверьте ${escapeHtml(model.provider.envKey)} в .env.` : 'Вставьте новый ключ: «🔑 Ключ».'
@@ -72,20 +71,13 @@ export const BALANCE: Section = {
       lines.push(`Модель ${title}: ${money(price.input * 1e6)} за 1 млн токенов на вход, ${money(price.output * 1e6)} на выход`)
       lines.push(`Один перевод ≈ ${money(translationCost(price))}${enoughPart(balance.remaining, price)}`)
     }
-    lines.push(balance.expiresAt === null ? 'Ключ бессрочный' : `Ключ действует до ${dayMonth(balance.expiresAt)}`)
+    lines.push(`Ключ ${expiryTerm(balance.expiresAt)}`)
     // Те же предупреждения, что приходят в личку: ключ истекает, деньги кончаются, модель уходит.
-    const warnings = warningTexts({
-      provider: model.provider,
-      keySource: model.keySource,
-      modelTitle: model.title,
-      balance,
-      price,
-      now: ctx.now,
-    })
+    const warnings = warningTexts(warningInput(model, balance, prices, ctx.now))
     if (warnings.length > 0) lines.push('', ...warnings.map((text) => `⚠️ ${escapeHtml(text)}`))
     return { html: lines.join('\n'), keyboard: [[REFRESH_BALANCE], [BACK]] }
   },
 
-  // «🔄 Обновить» — свежий снимок счёта: панель узнаёт его по действию refresh.
-  act: () => ({ show: 'section' }),
+  // «🔄 Обновить» — экран заново со свежим снимком счёта, мимо минутного кэша.
+  act: (_ctx, _env, act) => (act === 'refresh' ? { show: 'section', fresh: true } : { show: 'section' }),
 }

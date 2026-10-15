@@ -5,15 +5,11 @@ import { checkKeyByModels, createAccounts, keyState, type Http } from '../src/tr
 import { keyUnchecked } from '../src/owner/panel/key-input.ts'
 import { PRICES_TTL_MS, createOpenRouterAccount, toPrices } from '../src/translate/openrouter.ts'
 import { PROVIDERS, getProvider, looksLikeKey } from '../src/translate/providers.ts'
-import { T0 } from './helpers.ts'
+import { T0, jsonResponse } from './helpers.ts'
 
 /** Сохранённый живой ответ OpenRouter (2026-10-15), обезличенный. */
 function sample(name: string): Record<string, unknown> {
   return JSON.parse(readFileSync(new URL(`./fixtures/${name}.json`, import.meta.url), 'utf8')) as Record<string, unknown>
-}
-
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 }
 
 /** Подделка сети: ответ по адресу; адреса и заголовки запросов записываются. */
@@ -36,8 +32,8 @@ const KEY = `sk-or-v1-${'ab'.repeat(32)}`
 
 test('спека: остаток — меньшее из баланса счёта и лимита ключа', async () => {
   const { http, requests } = fakeHttp({
-    '/api/v1/key': () => json(sample('openrouter-key')),
-    '/api/v1/credits': () => json(sample('openrouter-credits')),
+    '/api/v1/key': () => jsonResponse(sample('openrouter-key')),
+    '/api/v1/credits': () => jsonResponse(sample('openrouter-credits')),
   })
   const balance = await createOpenRouterAccount(http).balance(KEY)
   assert.ok(balance)
@@ -54,8 +50,8 @@ test('спека: остаток — меньшее из баланса счёт
 test('спека: ключ без лимита — остаток по счёту', async () => {
   const key = sample('openrouter-key') as { data: Record<string, unknown> }
   const { http } = fakeHttp({
-    '/api/v1/key': () => json({ data: { ...key.data, limit: null, limit_remaining: null } }),
-    '/api/v1/credits': () => json(sample('openrouter-credits')),
+    '/api/v1/key': () => jsonResponse({ data: { ...key.data, limit: null, limit_remaining: null } }),
+    '/api/v1/credits': () => jsonResponse(sample('openrouter-credits')),
   })
   const balance = await createOpenRouterAccount(http).balance(KEY)
   assert.equal(balance?.keyLeft, null)
@@ -64,8 +60,8 @@ test('спека: ключ без лимита — остаток по счёт�
 
 test('спека: баланс счёта не виден (403) — остаток по лимиту ключа', async () => {
   const { http } = fakeHttp({
-    '/api/v1/key': () => json(sample('openrouter-key')),
-    '/api/v1/credits': () => json({ error: { message: 'Only management keys can perform this operation', code: 403 } }, 403),
+    '/api/v1/key': () => jsonResponse(sample('openrouter-key')),
+    '/api/v1/credits': () => jsonResponse({ error: { message: 'Only management keys can perform this operation', code: 403 } }, 403),
   })
   const balance = await createOpenRouterAccount(http).balance(KEY)
   assert.equal(balance?.accountHidden, true)
@@ -81,7 +77,7 @@ test('спека: OpenRouter не ответил — остаток не узн�
 
 test('ответ без половины полей не роняет разбор', async () => {
   const { http } = fakeHttp({
-    '/api/v1/key': () => json({ data: { limit: 5 } }),
+    '/api/v1/key': () => jsonResponse({ data: { limit: 5 } }),
     '/api/v1/credits': () => new Response('<html>oops</html>', { status: 200 }),
   })
   const balance = await createOpenRouterAccount(http).balance(KEY)
@@ -98,17 +94,17 @@ test('ответ без половины полей не роняет разбо
 
 test('проверка ключа OpenRouter — через /key: 401 — не принят, 200 — принят с балансом', async () => {
   const rejected = fakeHttp({
-    '/api/v1/key': () => json({ error: { message: 'User not found.', code: 401 } }, 401),
-    '/api/v1/credits': () => json({ error: { code: 401 } }, 401),
+    '/api/v1/key': () => jsonResponse({ error: { message: 'User not found.', code: 401 } }, 401),
+    '/api/v1/credits': () => jsonResponse({ error: { code: 401 } }, 401),
     // Список моделей открыт без ключа: если бы проверка шла по нему, ключ «приняли» бы.
-    '/api/v1/models': () => json(sample('openrouter-models')),
+    '/api/v1/models': () => jsonResponse(sample('openrouter-models')),
   })
   assert.deepEqual(await createOpenRouterAccount(rejected.http).verify!(KEY), { verdict: 'rejected' })
   assert.ok(!rejected.requests.some((request) => request.url.endsWith('/models')))
 
   const accepted = fakeHttp({
-    '/api/v1/key': () => json(sample('openrouter-key')),
-    '/api/v1/credits': () => json(sample('openrouter-credits')),
+    '/api/v1/key': () => jsonResponse(sample('openrouter-key')),
+    '/api/v1/credits': () => jsonResponse(sample('openrouter-credits')),
   })
   const check = await createOpenRouterAccount(accepted.http).verify!(KEY)
   assert.equal(check.verdict, 'ok')
@@ -116,7 +112,7 @@ test('проверка ключа OpenRouter — через /key: 401 — не �
 })
 
 test('цены: за токен из /models, дата ухода модели, кэш на час', async () => {
-  const { http, requests, clock } = fakeHttp({ '/api/v1/models': () => json(sample('openrouter-models')) })
+  const { http, requests, clock } = fakeHttp({ '/api/v1/models': () => jsonResponse(sample('openrouter-models')) })
   const account = createOpenRouterAccount(http)
   const prices = await account.prices()
   assert.deepEqual(prices?.get('anthropic/claude-haiku-5.5'), { input: 0.0000001, output: 0.0000005, expiresAt: null })
@@ -126,6 +122,28 @@ test('цены: за токен из /models, дата ухода модели, 
   assert.equal(requests.length, 1)
   clock.now += PRICES_TTL_MS
   await account.prices()
+  assert.equal(requests.length, 2)
+})
+
+test('цены: два показа на холодном кэше — один запрос /models', async () => {
+  const { http, requests } = fakeHttp({ '/api/v1/models': () => jsonResponse(sample('openrouter-models')) })
+  const account = createOpenRouterAccount(http)
+  const [first, second] = await Promise.all([account.prices(), account.prices()])
+  assert.equal(requests.length, 1)
+  assert.ok(first)
+  assert.equal(second, first)
+})
+
+test('цены: неудача в пути не держит следующий запрос — он идёт заново', async () => {
+  let up = false
+  const { http, requests } = fakeHttp({
+    '/api/v1/models': () => (up ? jsonResponse(sample('openrouter-models')) : new Response('down', { status: 502 })),
+  })
+  const account = createOpenRouterAccount(http)
+  assert.deepEqual(await Promise.all([account.prices(), account.prices()]), [null, null])
+  assert.equal(requests.length, 1)
+  up = true
+  assert.ok(await account.prices())
   assert.equal(requests.length, 2)
 })
 
@@ -148,7 +166,7 @@ test('цены: пустая, битая или отрицательная це�
 test('цены не узнать — null, и неудача не кэшируется', async () => {
   let up = false
   const { http, requests } = fakeHttp({
-    '/api/v1/models': () => (up ? json(sample('openrouter-models')) : new Response('down', { status: 502 })),
+    '/api/v1/models': () => (up ? jsonResponse(sample('openrouter-models')) : new Response('down', { status: 502 })),
   })
   const account = createOpenRouterAccount(http)
   assert.equal(await account.prices(), null)
@@ -159,12 +177,12 @@ test('цены не узнать — null, и неудача не кэшируе
 
 test('общая проверка ключа по списку моделей: 200 — принят, 401 — нет, тайм-аут — не проверить', async () => {
   const deepseek = getProvider('deepseek')
-  const ok = fakeHttp({ '/v1/models': () => json({ data: [] }) })
+  const ok = fakeHttp({ '/v1/models': () => jsonResponse({ data: [] }) })
   assert.deepEqual(await checkKeyByModels(deepseek, 'k', deepseek.baseUrl, ok.http), { verdict: 'ok', balance: null })
   assert.equal(ok.requests[0]!.url, 'https://api.deepseek.com/v1/models')
   assert.equal(ok.requests[0]!.auth, 'Bearer k')
 
-  const bad = fakeHttp({ '/v1/models': () => json({ error: 'invalid' }, 401) })
+  const bad = fakeHttp({ '/v1/models': () => jsonResponse({ error: 'invalid' }, 401) })
   assert.deepEqual(await checkKeyByModels(deepseek, 'k', deepseek.baseUrl, bad.http), { verdict: 'rejected' })
 
   const hanging: Http = {
@@ -179,7 +197,7 @@ test('общая проверка ключа по списку моделей: 2
 
 test('403 на проверке ключа — не «не принят», а «не проверить» с причиной: доступ закрыт, а не ключ плохой', async () => {
   const deepseek = getProvider('deepseek')
-  const byModels = fakeHttp({ '/v1/models': () => json({ error: 'forbidden' }, 403) })
+  const byModels = fakeHttp({ '/v1/models': () => jsonResponse({ error: 'forbidden' }, 403) })
   const deepseekCheck = await checkKeyByModels(deepseek, 'k', deepseek.baseUrl, byModels.http)
   assert.deepEqual(deepseekCheck, {
     verdict: 'unknown',
@@ -187,8 +205,8 @@ test('403 на проверке ключа — не «не принят», а «
   })
 
   const openrouter = fakeHttp({
-    '/api/v1/key': () => json({ error: { message: 'Forbidden', code: 403 } }, 403),
-    '/api/v1/credits': () => json({ error: { code: 403 } }, 403),
+    '/api/v1/key': () => jsonResponse({ error: { message: 'Forbidden', code: 403 } }, 403),
+    '/api/v1/credits': () => jsonResponse({ error: { code: 403 } }, 403),
   })
   const openrouterCheck = await createOpenRouterAccount(openrouter.http).verify!(KEY)
   assert.deepEqual(openrouterCheck, {
@@ -204,15 +222,15 @@ test('403 на проверке ключа — не «не принят», а «
 
 test('состояние ключа: «не принят» отличается от «нет связи», запросов столько же, сколько у баланса', async () => {
   const rejected = fakeHttp({
-    '/api/v1/key': () => json({ error: { message: 'User not found.', code: 401 } }, 401),
-    '/api/v1/credits': () => json({ error: { code: 401 } }, 401),
+    '/api/v1/key': () => jsonResponse({ error: { message: 'User not found.', code: 401 } }, 401),
+    '/api/v1/credits': () => jsonResponse({ error: { code: 401 } }, 401),
   })
   assert.deepEqual(await keyState(createOpenRouterAccount(rejected.http), KEY), { balance: null, rejected: true })
   assert.deepEqual(await keyState(createOpenRouterAccount(fakeHttp({}).http), KEY), { balance: null, rejected: false })
 
   const ok = fakeHttp({
-    '/api/v1/key': () => json(sample('openrouter-key')),
-    '/api/v1/credits': () => json(sample('openrouter-credits')),
+    '/api/v1/key': () => jsonResponse(sample('openrouter-key')),
+    '/api/v1/credits': () => jsonResponse(sample('openrouter-credits')),
   })
   const state = await keyState(createOpenRouterAccount(ok.http), KEY)
   assert.equal(state.rejected, false)
@@ -223,9 +241,9 @@ test('состояние ключа: «не принят» отличается 
 
 test('счета: у OpenRouter свой, у остальных нет; проверка ключа идёт туда, где она есть', async () => {
   const { http, requests } = fakeHttp({
-    '/api/v1/key': () => json(sample('openrouter-key')),
-    '/api/v1/credits': () => json(sample('openrouter-credits')),
-    '/v1/models': () => json({ data: [] }),
+    '/api/v1/key': () => jsonResponse(sample('openrouter-key')),
+    '/api/v1/credits': () => jsonResponse(sample('openrouter-credits')),
+    '/v1/models': () => jsonResponse({ data: [] }),
   })
   const accounts = createAccounts(PROVIDERS, http)
   assert.ok(accounts.of(getProvider('openrouter')))

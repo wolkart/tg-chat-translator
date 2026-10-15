@@ -1,5 +1,5 @@
 import { escapeHtml } from '../../../html.ts'
-import { maskKey, pasteScreen } from '../key-input.ts'
+import { keyEditable, maskKey, pasteScreen } from '../key-input.ts'
 import { BACK, action, type Section } from '../screen.ts'
 
 /** Ключ выбранного провайдера: какой задан и откуда, и «Вставить ключ», если он не из .env. */
@@ -24,9 +24,8 @@ export const KEY: Section = {
         '',
         `Ключ — это пароль от вашего счёта у ${label}: по нему бот платит за переводы. Берут его здесь: ${escapeHtml(provider.keysUrl)}`,
       ].join('\n'),
-      // Ключ из .env главнее панели: кнопка сохранила бы ключ, который всё равно не заработает.
       keyboard: [
-        ...(key?.source === 'env' ? [] : [[{ text: 'Вставить ключ', data: action('key', 'paste'), style: 'success' as const }]]),
+        ...(keyEditable(ctx.config, provider) ? [[{ text: 'Вставить ключ', data: action('key', 'paste'), style: 'success' as const }]] : []),
         [BACK],
       ],
     }
@@ -34,8 +33,8 @@ export const KEY: Section = {
 
   act(ctx, env, act) {
     if (act === 'paste') {
-      // Старая кнопка: ключ мог переехать в .env уже после того, как экран нарисовали.
-      if (ctx.config.keys[ctx.config.provider.id]?.source === 'env') return { show: 'section' }
+      // Старая кнопка: правило то же, что у кнопки на экране.
+      if (!keyEditable(ctx.config, ctx.config.provider)) return { show: 'section' }
       env.waits.start(ctx.ownerId, ctx.config.provider.id, { switchProvider: false })
       return { show: pasteScreen(ctx.config.provider) }
     }

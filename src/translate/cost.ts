@@ -1,3 +1,4 @@
+import { plural, roughly, spaced } from '../format.ts'
 import type { ModelPrice } from './account.ts'
 
 /**
@@ -25,4 +26,16 @@ export function translationsLeft(usd: number, price: Pick<ModelPrice, 'input' | 
   if (!(cost > 0)) return null
   const left = usd / cost
   return Number.isFinite(left) ? left : null
+}
+
+/**
+ * «46 000 переводов» — сколько хватит на сумму, круглым числом: это оценка. null — не
+ * посчитать (см. translationsLeft). Приставку («хватит примерно на», «это примерно») каждый
+ * текст ставит свою.
+ */
+export function translationsPhrase(usd: number, price: Pick<ModelPrice, 'input' | 'output'>): string | null {
+  const left = translationsLeft(usd, price)
+  if (left === null) return null
+  const n = roughly(left)
+  return `${spaced(n)} ${plural(n, ['перевод', 'перевода', 'переводов'])}`
 }

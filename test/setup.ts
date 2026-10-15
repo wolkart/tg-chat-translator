@@ -87,6 +87,7 @@ export function setupDeps(
     languagesProblem,
     address,
     provider,
+    active,
     keys,
     localBaseUrl,
     model,
@@ -94,14 +95,18 @@ export function setupDeps(
     translatorProblem,
     ...overrides
   } = options.overrides ?? {}
+  const fixedProvider = provider ?? PROVIDERS[0]!
+  const fixedModel = model ?? TEST_MODEL
   const fixed: Config = {
     languages: languages === undefined ? pair.pair : languages,
     languagesProblem: languagesProblem ?? null,
     address: address ?? 'as-is',
-    provider: provider ?? PROVIDERS[0]!,
+    provider: fixedProvider,
+    // Как в createConfig: переводит провайдер модели, а без ключа — выбранный.
+    active: active ?? (fixedModel.ok ? fixedModel.provider : fixedProvider),
     keys: keys ?? { openrouter: { value: TEST_KEY, source: 'env' } },
     localBaseUrl,
-    model: model ?? TEST_MODEL,
+    model: fixedModel,
     translator: translatorOverride === undefined ? translator.translate : translatorOverride,
     translatorProblem: translatorProblem ?? null,
   }

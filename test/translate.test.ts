@@ -14,6 +14,7 @@ import {
   type PromptFragment,
 } from '../src/translate/llm.ts'
 import type { HistoryLine } from '../src/types.ts'
+import { jsonResponse } from './helpers.ts'
 
 const ru = getProfile('ru')!
 const en = getProfile('en')!
@@ -222,10 +223,6 @@ test('stripQuotes снимает одну обрамляющую пару', () =
   assert.equal(stripQuotes('«Да» или «нет»'), '«Да» или «нет»')
   assert.equal(stripQuotes('"A" and "B"'), '"A" and "B"')
 })
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
-}
 
 const openrouter = { label: 'OpenRouter', envKey: 'OPENROUTER_API_KEY', keysUrl: 'https://openrouter.ai/keys' }
 const config = { baseUrl: 'https://llm.test/v1', apiKey: 'sk-test', model: 'm', provider: openrouter }

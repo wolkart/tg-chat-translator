@@ -1,10 +1,10 @@
 import type { Deps } from '../../deps.ts'
 import { dayMonth, money } from '../../format.ts'
 import { escapeHtml } from '../../html.ts'
-import { switchProvider } from '../../settings.ts'
+import { switchProvider, type Config } from '../../settings.ts'
 import { keySetting } from '../../store.ts'
 import type { Balance } from '../../translate/account.ts'
-import { getProvider, looksLikeKey, PROVIDERS, providerBaseUrl, type Provider } from '../../translate/providers.ts'
+import { findKeys, getProvider, looksLikeKey, PROVIDERS, providerBaseUrl, type Provider } from '../../translate/providers.ts'
 import type { KeyWait, KeyWaits, Screen } from './screen.ts'
 import { action } from './screen.ts'
 
@@ -73,7 +73,8 @@ export const KEY_GUARD_NOT_DELETED =
   'Чтобы сохранить ключ: /start → 🔑 Ключ → Вставить ключ.'
 
 export function notAKey(provider: Provider): string {
-  return `Это не похоже на ключ ${provider.label} — ${provider.keyHint ?? 'проверьте, что скопировали его целиком'}. Пришлите ключ ещё раз или нажмите «Отмена».`
+  const hint = provider.keyPrefix ? `он начинается с ${provider.keyPrefix}` : 'проверьте, что скопировали его целиком'
+  return `Это не похоже на ключ ${provider.label} — ${hint}. Пришлите ключ ещё раз или нажмите «Отмена».`
 }
 
 export function otherProviderKey(provider: Provider): string {
@@ -94,6 +95,15 @@ export function keySaved(key: string, balance: Balance | null): string {
   if (!balance || balance.remaining === null) return saved
   const term = balance.expiresAt === null ? 'ключ бессрочный' : `действует до ${dayMonth(balance.expiresAt)}`
   return `${saved} Осталось ${money(balance.remaining)}, ${term}.`
+}
+
+/**
+ * Можно ли вставить ключ провайдера кнопкой. Ключ из .env главнее панели: кнопка сохранила бы
+ * ключ, который всё равно не заработает. Одно правило и для кнопки на экране, и для нажатия
+ * старой кнопки — ключ мог переехать в .env уже после того, как экран нарисовали.
+ */
+export function keyEditable(config: Config, provider: Provider): boolean {
+  return config.keys[provider.id]?.source !== 'env'
 }
 
 /** Ключ из сообщения: по шаблону провайдера, у провайдера без шаблона — весь текст. */
@@ -128,12 +138,10 @@ export async function onKeyText(
     const provider = getProvider(wait.providerId)
     const key = extractKey(provider, message.text)
     if (!key) {
-      if (looksLikeKey(message.text)) {
+      const others = findKeys(message.text)
+      if (others.length > 0) {
         // Ключ другого провайдера: сохранять нельзя, но и в переписке оставлять нельзя.
-        for (const other of PROVIDERS) {
-          const found = other.keyPattern && new RegExp(other.keyPattern.source, 'g')
-          for (const match of found ? message.text.matchAll(found) : []) deps.addSecret(match[0])
-        }
+        for (const secret of others) deps.addSecret(secret)
         if (!(await remove(deps, ownerId, message.messageId))) await deps.api.sendText(ownerId, KEY_NOT_DELETED)
         await deps.api.sendText(ownerId, otherProviderKey(provider), { replyTo: message.messageId })
         return true

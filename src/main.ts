@@ -54,7 +54,8 @@ await startupChecks({
   languagesProblem: initial.languagesProblem,
   modelProblem: initial.translatorProblem,
 })
-await setupCommands(api, alerts.log)
+// Меню команд — не повод держать запуск: сбой setupCommands ловит сам, строкой в консоль.
+void setupCommands(api, alerts.log)
 
 const inline = createInlineCheck({ api, initial: me.supportsInlineQueries, now })
 
