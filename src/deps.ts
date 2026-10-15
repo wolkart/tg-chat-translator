@@ -33,6 +33,8 @@ export type Deps = {
   onBotInfo: (me: BotInfo) => void
   /** Счета провайдеров: остаток, цены, проверка ключа */
   accounts: Accounts
+  /** Новый секрет — ключ, вставленный в панели: с этой минуты его не видно в сообщениях и консоли */
+  addSecret: (value: string) => void
   /** Холостой прогон: собеседнику ничего не уходит */
   dry: boolean
   now: () => number

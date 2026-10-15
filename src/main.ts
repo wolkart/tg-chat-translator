@@ -68,6 +68,7 @@ const app = createApp({
   inlineEnabled: inline,
   onBotInfo: (info) => inline.update(info.supportsInlineQueries),
   accounts: createAccounts(PROVIDERS, { fetchImpl: fetch, now }),
+  addSecret: scrub.add,
   dry,
   now,
 })

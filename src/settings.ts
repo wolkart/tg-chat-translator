@@ -1,7 +1,16 @@
 import { resolvePair, type LanguagePair } from './lang/profiles.ts'
 import { ADDRESS_DEFAULTS, LANGUAGE_DEFAULTS, SETTING, type Store } from './store.ts'
 import { createTranslator, type Translator } from './translate/llm.ts'
-import { PROVIDER_DEFAULTS, resolveModel, type ResolvedModel } from './translate/providers.ts'
+import {
+  PROVIDERS,
+  PROVIDER_DEFAULTS,
+  getProvider,
+  providerKey,
+  resolveModel,
+  type Provider,
+  type ProviderKey,
+  type ResolvedModel,
+} from './translate/providers.ts'
 import type { Address } from './types.ts'
 
 /** Всё, что пишется в базу при первом запуске. Дальше источник правды — база, её правит панель. */
@@ -13,6 +22,12 @@ export type Config = {
   languages: LanguagePair | null
   languagesProblem: string | null
   address: Address
+  /** Провайдер, выбранный в панели. Переводит он же, если у него есть ключ, — иначе model скажет кто */
+  provider: Provider
+  /** Ключи по id провайдера: какой и откуда — из .env или из панели */
+  keys: Readonly<Record<string, ProviderKey>>
+  /** Адрес локальной модели из .env */
+  localBaseUrl: string | undefined
   model: ResolvedModel
   /** null — нет ключа модели: входящие показываются без перевода */
   translator: Translator | null
@@ -53,15 +68,20 @@ export function createConfig(deps: {
       get(SETTING.ownerLang) ?? LANGUAGE_DEFAULTS[SETTING.ownerLang]!,
       get(SETTING.peerLang) ?? LANGUAGE_DEFAULTS[SETTING.peerLang]!,
     )
-    const model = resolveModel(
-      { provider: get(SETTING.provider), model: get(SETTING.model) },
-      deps.env,
-      deps.store.panelKeys(ownerId),
-    )
+    const panelKeys = deps.store.panelKeys(ownerId)
+    const model = resolveModel({ provider: get(SETTING.provider), model: get(SETTING.model) }, deps.env, panelKeys)
+    const keys: Record<string, ProviderKey> = {}
+    for (const provider of PROVIDERS) {
+      const key = providerKey(provider, deps.env.providerKeys, panelKeys)
+      if (key) keys[provider.id] = key
+    }
     return {
       languages: pair.ok ? pair.pair : null,
       languagesProblem: pair.ok ? null : pair.problem,
       address: get(SETTING.address) === 'formal' ? 'formal' : 'as-is',
+      provider: getProvider(get(SETTING.provider)),
+      keys,
+      localBaseUrl: deps.env.localBaseUrl,
       model,
       translator: model.ok ? makeTranslator(model) : null,
       translatorProblem: model.ok ? null : model.problem,

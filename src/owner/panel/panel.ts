@@ -1,5 +1,6 @@
 import type { Deps } from '../../deps.ts'
 import { describeError, isNotModified, type BotInfo, type InlineButton } from '../../telegram.ts'
+import { createKeyWaits, onKeyText } from './key-input.ts'
 import { SECTIONS } from './sections/index.ts'
 import {
   MAIN,
@@ -44,14 +45,16 @@ export type Panel = {
   open(ownerId: number, opts?: { threadId?: number; notice?: string }): Promise<void>
   /** Нажатие кнопки панели: экран правится на месте */
   onCallback(callback: { id: string; data: string; messageId: number | undefined }, ownerId: number): Promise<void>
+  /** Текст владельца: ключ, которого ждёт панель, или ключ не по запросу. true — обработан здесь */
+  onText(ownerId: number, message: { text: string; messageId: number; threadId?: number }): Promise<boolean>
 }
 
 /**
  * Панель настроек. Состояние в данных кнопок не хранится: кнопки старой панели работают и
- * после перезапуска. В памяти — только снимок счёта на минуту.
+ * после перезапуска. В памяти — снимок счёта на минуту и ожидание ключа на 10 минут.
  */
 export function createPanel(deps: Deps): Panel {
-  const env: SectionEnv = { deps }
+  const env: SectionEnv = { deps, waits: createKeyWaits(deps.now) }
   const accounts = new Map<string, { at: number; snapshot: AccountSnapshot }>()
 
   async function botInfo(): Promise<BotInfo | null> {
@@ -102,8 +105,10 @@ export function createPanel(deps: Deps): Panel {
     return section.act ? section.act(ctx, env, act, arg) : null
   }
 
-  return {
+  const panel: Panel = {
     async open(ownerId, opts = {}) {
+      // /start — новое действие: ключ после него уже не ждём.
+      env.waits.cancel(ownerId)
       const ctx = await context(ownerId)
       const screen = mainScreen(ctx, opts.notice)
       await deps.api.sendText(ownerId, screen.html, {
@@ -114,6 +119,8 @@ export function createPanel(deps: Deps): Panel {
     },
 
     async onCallback(callback, ownerId) {
+      // Любое нажатие панели снимает ожидание ключа: «Вставить ключ» начнёт его заново.
+      env.waits.cancel(ownerId)
       const [sectionId = '', act, ...rest] = callback.data.slice(PANEL_PREFIX.length).split(':')
       const refresh = callback.data === REFRESH
       const section = SECTIONS.find((candidate) => candidate.id === sectionId)
@@ -143,5 +150,10 @@ export function createPanel(deps: Deps): Panel {
       }
       await deps.api.answerCallback(callback.id, toast)
     },
+
+    onText(ownerId, message) {
+      return onKeyText(deps, env.waits, ownerId, message, (notice) => panel.open(ownerId, { notice }))
+    },
   }
+  return panel
 }

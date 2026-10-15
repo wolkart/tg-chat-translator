@@ -103,6 +103,11 @@ export const PROVIDER_DEFAULTS: Record<string, string> = {
   [SETTING.model]: PROVIDERS[0]!.models[0]!.id,
 }
 
+/** Адрес провайдера: у локальной модели его можно поменять в .env (LOCAL_BASE_URL). */
+export function providerBaseUrl(provider: Provider, localBaseUrl: string | undefined): string {
+  return provider.id === 'local' && localBaseUrl ? localBaseUrl : provider.baseUrl
+}
+
 /** Ключ любого провайдера по виду: текст, где он есть, бот не переводит и никому не отправляет. */
 export function looksLikeKey(text: string): boolean {
   return PROVIDERS.some((provider) => provider.keyPattern?.test(text))
@@ -170,6 +175,13 @@ export function resolveModel(
 
   // Сохранённой модели нет в списке (убрали или сменился провайдер) — первая из списка.
   const model = provider.models.find((candidate) => candidate.id === settings.model) ?? provider.models[0]!
-  const baseUrl = provider.id === 'local' && env.localBaseUrl ? env.localBaseUrl : provider.baseUrl
-  return { ok: true, provider, model: model.id, title: model.title, apiKey: key.value, keySource: key.source, baseUrl }
+  return {
+    ok: true,
+    provider,
+    model: model.id,
+    title: model.title,
+    apiKey: key.value,
+    keySource: key.source,
+    baseUrl: providerBaseUrl(provider, env.localBaseUrl),
+  }
 }

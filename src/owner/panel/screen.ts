@@ -28,8 +28,18 @@ export type PanelContext = {
 /** Что показать после нажатия: главный экран, экран раздела заново или готовый экран. */
 export type Outcome = { show: 'main' | 'section' | Screen; toast?: string }
 
+/** Бот ждёт ключ этого провайдера. switchProvider — после сохранения переключиться на него. */
+export type KeyWait = { providerId: string; until: number; switchProvider: boolean }
+
+export type KeyWaits = {
+  start(ownerId: number, providerId: string, opts: { switchProvider: boolean }): void
+  /** Ожидание, если оно ещё не истекло */
+  get(ownerId: number): KeyWait | undefined
+  cancel(ownerId: number): void
+}
+
 /** Что разделу доступно, кроме контекста: зависимости и ожидание ключа. */
-export type SectionEnv = { deps: Deps }
+export type SectionEnv = { deps: Deps; waits: KeyWaits }
 
 /**
  * Раздел панели — строка реестра (sections.ts). Платный раздел встаёт сюда же новой строкой,

@@ -66,6 +66,8 @@ export function setupDeps(
     live?: boolean
     /** Что отвечает getMe: настройки BotFather */
     me?: Partial<BotInfo>
+    /** Ключи в .env для live: по умолчанию — ключ OpenRouter; {} — ключи только из панели */
+    envKeys?: Record<string, string>
   } = {},
 ) {
   let clock = T0
@@ -80,19 +82,37 @@ export function setupDeps(
   const pair = resolvePair('ru', 'en')
   if (!pair.ok) throw new Error(pair.problem)
 
-  const { languages, languagesProblem, address, model, translator: translatorOverride, translatorProblem, ...overrides } =
-    options.overrides ?? {}
+  const {
+    languages,
+    languagesProblem,
+    address,
+    provider,
+    keys,
+    localBaseUrl,
+    model,
+    translator: translatorOverride,
+    translatorProblem,
+    ...overrides
+  } = options.overrides ?? {}
   const fixed: Config = {
     languages: languages === undefined ? pair.pair : languages,
     languagesProblem: languagesProblem ?? null,
     address: address ?? 'as-is',
+    provider: provider ?? PROVIDERS[0]!,
+    keys: keys ?? { openrouter: { value: TEST_KEY, source: 'env' } },
+    localBaseUrl,
     model: model ?? TEST_MODEL,
     translator: translatorOverride === undefined ? translator.translate : translatorOverride,
     translatorProblem: translatorProblem ?? null,
   }
   const accounts = fakeAccounts()
+  const secrets: string[] = []
   const config = options.live
-    ? createConfig({ store, env: { providerKeys: { OPENROUTER_API_KEY: TEST_KEY } }, makeTranslator: () => translator.translate })
+    ? createConfig({
+        store,
+        env: { providerKeys: options.envKeys ?? { OPENROUTER_API_KEY: TEST_KEY } },
+        makeTranslator: () => translator.translate,
+      })
     : () => fixed
 
   const deps: Deps = {
@@ -107,6 +127,7 @@ export function setupDeps(
     inlineEnabled: async () => true,
     onBotInfo: () => {},
     accounts: accounts.accounts,
+    addSecret: (value) => secrets.push(value),
     dry: false,
     now,
     ...overrides,
@@ -119,6 +140,8 @@ export function setupDeps(
     translator,
     printed,
     accounts,
+    /** Что попало в замену секретов на ходу */
+    secrets,
     advance(ms: number) {
       clock += ms
     },

@@ -57,6 +57,9 @@ async function onOwnerMessage(deps: Deps, panel: Panel, message: Message): Promi
   }
 
   const payload = { text: message.text ?? message.caption ?? '', media: extractMedia(message), sourceMessageId: message.message_id }
+  // Ключ, которого ждёт панель, и ключ не по запросу дальше не идут: ни модели, ни собеседнику.
+  const keyText = { text: payload.text, messageId: message.message_id, threadId: message.message_thread_id }
+  if (payload.text && (await panel.onText(deps.ownerId, keyText))) return
   if (!payload.text && !payload.media) {
     // Геопозиция, контакт и прочее — честно говорим, что переслать не можем. Служебные — молча.
     if (unsupportedLabel(message)) await deps.api.sendText(deps.ownerId, CANT_FORWARD, { replyTo: message.message_id })

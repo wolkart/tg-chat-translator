@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -65,4 +65,22 @@ test('запуск без BOT_TOKEN печатает недостающие пе
   assert.equal(run.status, 1)
   assert.match(run.stderr, /BOT_TOKEN/)
   assert.match(run.stderr, /OWNER_ID/)
+})
+
+test('.env.example: все переменные на месте и пустые, а ключи модели не обязательны', () => {
+  const example = parseDotEnv(readFileSync(new URL('../.env.example', import.meta.url), 'utf8'))
+  assert.deepEqual(Object.keys(example).sort(), [
+    'BOT_TOKEN',
+    'DB_PATH',
+    'DEEPSEEK_API_KEY',
+    'GROQ_API_KEY',
+    'LOCAL_API_KEY',
+    'LOCAL_BASE_URL',
+    'MOONSHOT_API_KEY',
+    'OPENROUTER_API_KEY',
+    'OWNER_ID',
+  ])
+  assert.ok(Object.values(example).every((value) => value === ''))
+  const result = readEnv({ ...example, BOT_TOKEN: '123456:token', OWNER_ID: '42' })
+  assert.equal(result.ok, true)
 })
