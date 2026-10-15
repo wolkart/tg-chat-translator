@@ -15,7 +15,7 @@
 
 ## 3. Обёртка Telegram и самопроверка BotFather
 
-- [ ] 3.1 В `TelegramApi`:
+- [x] 3.1 В `TelegramApi`:
   - `editText(chatId, messageId, text, opts?: { html, keyboard })`;
   - `setCommands(commands)`;
   - `BotInfo.allowsUsersToCreateTopics`;

@@ -1,4 +1,13 @@
-import type { BotInfo, BusinessConnectionInfo, InlineAnswerButton, InlineArticle, MediaOptions, TelegramApi } from '../src/telegram.ts'
+import type {
+  BotCommand,
+  BotInfo,
+  BusinessConnectionInfo,
+  EditOptions,
+  InlineAnswerButton,
+  InlineArticle,
+  MediaOptions,
+  TelegramApi,
+} from '../src/telegram.ts'
 import type { MediaKind } from '../src/types.ts'
 
 export type Call =
@@ -8,9 +17,10 @@ export type Call =
   | { method: 'getBusinessConnection'; id: string }
   | { method: 'downloadFile'; fileId: string }
   | { method: 'answerCallback'; callbackId: string; text?: string }
-  | { method: 'editText'; chatId: number; messageId: number; text: string }
+  | { method: 'editText'; chatId: number; messageId: number; text: string; opts?: EditOptions }
   | { method: 'deleteMessage'; chatId: number; messageId: number }
   | { method: 'getMe' }
+  | { method: 'setCommands'; commands: readonly BotCommand[] }
   | { method: 'answerInline'; queryId: string; articles: readonly InlineArticle[]; button?: InlineAnswerButton }
 
 type Method = Call['method']
@@ -65,8 +75,9 @@ export function fakeTelegram(init: { connections?: BusinessConnectionInfo[]; me?
       calls.push({ method: 'answerCallback', callbackId, text })
       maybeFail('answerCallback')
     },
-    async editText(chatId, messageId, text) {
-      calls.push({ method: 'editText', chatId, messageId, text })
+    async editText(chatId, messageId, text, opts) {
+      // opts — только если переданы: старые проверки сравнивают вызов целиком.
+      calls.push({ method: 'editText', chatId, messageId, text, ...(opts && { opts }) })
       maybeFail('editText')
     },
     async deleteMessage(chatId, messageId) {
@@ -82,8 +93,13 @@ export function fakeTelegram(init: { connections?: BusinessConnectionInfo[]; me?
         canConnectToBusiness: true,
         hasTopicsEnabled: true,
         supportsInlineQueries: true,
+        allowsUsersToCreateTopics: false,
         ...init.me,
       }
+    },
+    async setCommands(commands) {
+      calls.push({ method: 'setCommands', commands })
+      maybeFail('setCommands')
     },
     async answerInline(queryId, articles, opts = {}) {
       calls.push({ method: 'answerInline', queryId, articles, ...(opts.button && { button: opts.button }) })

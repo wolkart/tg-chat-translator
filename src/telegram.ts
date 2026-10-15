@@ -42,6 +42,12 @@ export type SendOptions = {
 
 export type MediaOptions = SendOptions & { caption?: string; fileName?: string }
 
+/** Правка сообщения: html — разметка (текст уже прошёл escapeHtml), keyboard — новые кнопки. */
+export type EditOptions = { html?: boolean; keyboard?: InlineButton[][] }
+
+/** Команда в меню бота: «/start — Настройки и статус». */
+export type BotCommand = { command: string; description: string }
+
 export type BusinessConnectionInfo = {
   id: string
   userId: number
@@ -59,6 +65,8 @@ export type BotInfo = {
   hasTopicsEnabled: boolean
   /** Inline Mode в BotFather: без него не работает кнопка «Отправить через бота» */
   supportsInlineQueries: boolean
+  /** Пользователям разрешено создавать темы — так появляются темы, которых бот не знает */
+  allowsUsersToCreateTopics: boolean
 }
 
 /** Ошибка Telegram в одном виде — и от настоящего API, и от подделки в тестах. */
@@ -87,6 +95,14 @@ export function isTelegramError(error: unknown, pattern: RegExp): boolean {
 }
 
 /**
+ * Telegram отвечает ошибкой, если правка ничего не меняет. Для панели это не поломка:
+ * «🔄 Обновить» при том же состоянии и должен оставить экран прежним.
+ */
+export function isNotModified(error: unknown): boolean {
+  return isTelegramError(error, /message is not modified/i)
+}
+
+/**
  * Подмножество Bot API, которое нужно продукту. Шаги работают с этим интерфейсом,
  * а не с grammy напрямую: в тестах его заменяет подделка, записывающая вызовы.
  */
@@ -97,9 +113,11 @@ export interface TelegramApi {
   getBusinessConnection(id: string): Promise<BusinessConnectionInfo>
   downloadFile(fileId: string): Promise<Uint8Array>
   answerCallback(callbackId: string, text?: string): Promise<void>
-  editText(chatId: number, messageId: number, text: string): Promise<void>
+  editText(chatId: number, messageId: number, text: string, opts?: EditOptions): Promise<void>
   deleteMessage(chatId: number, messageId: number): Promise<void>
   getMe(): Promise<BotInfo>
+  /** Меню команд в чате с ботом */
+  setCommands(commands: readonly BotCommand[]): Promise<void>
   /** Ответ на inline-запрос: виден только тому, кто спросил, и не кэшируется */
   answerInline(queryId: string, articles: readonly InlineArticle[], opts?: { button?: InlineAnswerButton }): Promise<void>
 }
@@ -121,6 +139,20 @@ export function toInlineKeyboard(keyboard: readonly (readonly InlineButton[])[])
       return { text: button.text, callback_data: button.data, ...style }
     }),
   )
+}
+
+/**
+ * Параметры правки сообщения. Без opts — ничего лишнего: так правятся «Кому?» и подтверждения,
+ * как и раньше. С opts — разметка, кнопки и без превью ссылок: в панели есть адреса
+ * (openrouter.ai/keys), и карточка сайта под экраном только мешала бы.
+ */
+export function editOptions(opts?: EditOptions) {
+  if (!opts) return undefined
+  return {
+    ...(opts.html && { parse_mode: 'HTML' as const }),
+    ...(opts.keyboard && { reply_markup: { inline_keyboard: toInlineKeyboard(opts.keyboard) } }),
+    link_preview_options: { is_disabled: true },
+  }
 }
 
 export function toConnectionInfo(connection: BusinessConnection): BusinessConnectionInfo {
@@ -222,8 +254,8 @@ export function createTelegramApi(api: Api, token: string, fetchImpl: typeof fet
       await call(() => api.answerCallbackQuery(callbackId, text ? { text } : undefined))
     },
 
-    async editText(chatId, messageId, text) {
-      await call(() => api.editMessageText(chatId, messageId, text))
+    async editText(chatId, messageId, text, opts) {
+      await call(() => api.editMessageText(chatId, messageId, text, editOptions(opts)))
     },
 
     async deleteMessage(chatId, messageId) {
@@ -238,7 +270,12 @@ export function createTelegramApi(api: Api, token: string, fetchImpl: typeof fet
         canConnectToBusiness: me.can_connect_to_business,
         hasTopicsEnabled: me.has_topics_enabled,
         supportsInlineQueries: me.supports_inline_queries,
+        allowsUsersToCreateTopics: me.allows_users_to_create_topics,
       }
+    },
+
+    async setCommands(commands) {
+      await call(() => api.setMyCommands([...commands]))
     },
 
     async answerInline(queryId, articles, opts) {

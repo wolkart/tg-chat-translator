@@ -15,7 +15,14 @@ import type { BotInfo } from '../src/telegram.ts'
 import { fakeTelegram } from './fakes.ts'
 import { OWNER_ID } from './helpers.ts'
 
-const healthy: BotInfo = { id: 300003, username: 'translator_test_bot', canConnectToBusiness: true, hasTopicsEnabled: true, supportsInlineQueries: true }
+const healthy: BotInfo = {
+  id: 300003,
+  username: 'translator_test_bot',
+  canConnectToBusiness: true,
+  hasTopicsEnabled: true,
+  supportsInlineQueries: true,
+  allowsUsersToCreateTopics: false,
+}
 
 function setup() {
   const tg = fakeTelegram()

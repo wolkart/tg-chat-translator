@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Api } from 'grammy'
-import { createTelegramApi, toInlineKeyboard } from '../src/telegram.ts'
+import { TelegramError, createTelegramApi, isNotModified, toInlineKeyboard } from '../src/telegram.ts'
 
 test('кнопки: нажатие боту, копирование, выбор чата и цвет — в формате Bot API', () => {
   assert.deepEqual(
@@ -30,6 +30,27 @@ function recordingApi() {
       calls.push({ method: 'answerInlineQuery', args })
       return true
     },
+    editMessageText: async (...args: unknown[]) => {
+      calls.push({ method: 'editMessageText', args })
+      return true
+    },
+    setMyCommands: async (...args: unknown[]) => {
+      calls.push({ method: 'setMyCommands', args })
+      return true
+    },
+    getMe: async () => ({
+      id: 300003,
+      is_bot: true,
+      first_name: 'Translator',
+      username: 'translator_test_bot',
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: true,
+      can_connect_to_business: true,
+      has_main_web_app: false,
+      has_topics_enabled: true,
+      allows_users_to_create_topics: true,
+    }),
   } as unknown as Api
   return { calls, tg: createTelegramApi(api, 'TOKEN') }
 }
@@ -60,4 +81,40 @@ test('answerInline: кнопка над вариантами открывает 
   const other = calls[0]!.args[2] as Record<string, unknown>
   assert.deepEqual(other.button, { text: 'Перевод устарел — напишите заново', start_parameter: 'draft' })
   assert.equal(other.is_personal, true)
+})
+
+test('editText без параметров — как раньше: ни разметки, ни кнопок', async () => {
+  const { calls, tg } = recordingApi()
+  await tg.editText(1, 7, 'Отправлено Anna')
+  assert.deepEqual(calls[0]!.args, [1, 7, 'Отправлено Anna', undefined])
+})
+
+test('editText с разметкой и кнопками — parse_mode, reply_markup и без превью ссылок', async () => {
+  const { calls, tg } = recordingApi()
+  await tg.editText(1, 7, '<b>Панель</b>', { html: true, keyboard: [[{ text: '← Назад', data: 'p:main' }]] })
+  assert.deepEqual(calls[0]!.args[3], {
+    parse_mode: 'HTML',
+    reply_markup: { inline_keyboard: [[{ text: '← Назад', callback_data: 'p:main' }]] },
+    link_preview_options: { is_disabled: true },
+  })
+})
+
+test('setCommands — список команд уходит в setMyCommands', async () => {
+  const { calls, tg } = recordingApi()
+  await tg.setCommands([{ command: 'start', description: 'Настройки и статус' }])
+  assert.deepEqual(calls[0], { method: 'setMyCommands', args: [[{ command: 'start', description: 'Настройки и статус' }]] })
+})
+
+test('getMe — разрешено ли пользователям создавать темы', async () => {
+  const { tg } = recordingApi()
+  assert.equal((await tg.getMe()).allowsUsersToCreateTopics, true)
+})
+
+test('isNotModified узнаёт «message is not modified» и только его', () => {
+  assert.equal(
+    isNotModified(new TelegramError(400, 'Bad Request: message is not modified: specified new message content and reply markup are exactly the same')),
+    true,
+  )
+  assert.equal(isNotModified(new TelegramError(400, 'Bad Request: message to edit not found')), false)
+  assert.equal(isNotModified(new Error('message is not modified')), false)
 })
