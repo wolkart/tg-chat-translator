@@ -122,12 +122,13 @@ export function createPanel(deps: Deps): Panel {
       // Любое нажатие панели снимает ожидание ключа: «Вставить ключ» начнёт его заново.
       env.waits.cancel(ownerId)
       const [sectionId = '', act, ...rest] = callback.data.slice(PANEL_PREFIX.length).split(':')
-      const refresh = callback.data === REFRESH
+      // «🔄 Обновить» на главном и на экране баланса: снимок счёта — свежий.
+      const refresh = callback.data === REFRESH || act === 'refresh'
       const section = SECTIONS.find((candidate) => candidate.id === sectionId)
       let ctx = await context(ownerId, refresh)
 
       let outcome: Outcome | null
-      if (callback.data === MAIN || refresh) outcome = { show: 'main' }
+      if (callback.data === MAIN || callback.data === REFRESH) outcome = { show: 'main' }
       else outcome = await outcomeOf(ctx, section, act, rest.join(':'))
       if (!outcome || callback.messageId === undefined) {
         await deps.api.answerCallback(callback.id)
