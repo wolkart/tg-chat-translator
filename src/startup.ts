@@ -66,12 +66,18 @@ export const INLINE_OFF = botfatherText(INLINE)
 /** Меню команд: одна команда, она же панель. */
 export const BOT_COMMANDS: readonly BotCommand[] = [{ command: 'start', description: 'Настройки и статус' }]
 
-/** Меню команд при старте. Без меню бот работает — отказ Telegram только в консоль. */
+/**
+ * Меню команд при старте. Без меню бот работает — отказ Telegram только в консоль.
+ * Ставим и общую область, и личные чаты: узкая область главнее общей, поэтому старый
+ * список для личных чатов (например, «Start bot» из BotFather) перекрыл бы наш.
+ */
 export async function setupCommands(api: TelegramApi, log: (text: string) => void): Promise<void> {
-  try {
-    await api.setCommands(BOT_COMMANDS)
-  } catch (error) {
-    log(`меню команд не задано: ${describeError(error)}`)
+  for (const scope of ['default', 'all_private_chats'] as const) {
+    try {
+      await api.setCommands(BOT_COMMANDS, scope)
+    } catch (error) {
+      log(`меню команд не задано: ${describeError(error)}`)
+    }
   }
 }
 

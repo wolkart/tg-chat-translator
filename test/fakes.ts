@@ -1,5 +1,6 @@
 import type {
   BotCommand,
+  CommandScope,
   BotInfo,
   BusinessConnectionInfo,
   EditOptions,
@@ -23,7 +24,7 @@ export type Call =
   | { method: 'editText'; chatId: number; messageId: number; text: string; opts?: EditOptions }
   | { method: 'deleteMessage'; chatId: number; messageId: number }
   | { method: 'getMe' }
-  | { method: 'setCommands'; commands: readonly BotCommand[] }
+  | { method: 'setCommands'; commands: readonly BotCommand[]; scope: CommandScope }
   | { method: 'answerInline'; queryId: string; articles: readonly InlineArticle[]; button?: InlineAnswerButton }
 
 type Method = Call['method']
@@ -100,8 +101,8 @@ export function fakeTelegram(init: { connections?: BusinessConnectionInfo[]; me?
         ...init.me,
       }
     },
-    async setCommands(commands) {
-      calls.push({ method: 'setCommands', commands })
+    async setCommands(commands, scope = 'default') {
+      calls.push({ method: 'setCommands', commands, scope })
       maybeFail('setCommands')
     },
     async answerInline(queryId, articles, opts = {}) {

@@ -167,8 +167,21 @@ test('спека: Inline Mode выключили после старта — п�
 test('спека: меню команд — одна команда /start «Настройки и статус»', async () => {
   const tg = fakeTelegram()
   await setupCommands(tg.api, () => {})
-  assert.deepEqual(tg.callsOf('setCommands'), [{ method: 'setCommands', commands: [{ command: 'start', description: 'Настройки и статус' }] }])
+  const commands = [{ command: 'start', description: 'Настройки и статус' }]
+  assert.deepEqual(tg.callsOf('setCommands'), [
+    { method: 'setCommands', commands, scope: 'default' },
+    { method: 'setCommands', commands, scope: 'all_private_chats' },
+  ])
   assert.equal(BOT_COMMANDS.length, 1)
+})
+
+test('меню команд: сбой одного вызова пишется в консоль, второй вызов всё равно идёт', async () => {
+  const tg = fakeTelegram()
+  tg.failNext('setCommands', new Error('сеть моргнула'))
+  const lines: string[] = []
+  await setupCommands(tg.api, (line) => lines.push(line))
+  assert.equal(lines.length, 1)
+  assert.equal(tg.callsOf('setCommands').length, 2)
 })
 
 test('меню команд не задалось — бот работает дальше, причина в консоли', async () => {

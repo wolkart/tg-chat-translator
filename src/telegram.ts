@@ -46,6 +46,8 @@ export type MediaOptions = SendOptions & { caption?: string; fileName?: string }
 export type EditOptions = { html?: boolean; keyboard?: InlineButton[][] }
 
 /** Команда в меню бота: «/start — Настройки и статус». */
+/** Область меню команд: общая или только личные чаты. */
+export type CommandScope = 'default' | 'all_private_chats'
 export type BotCommand = { command: string; description: string }
 
 export type BusinessConnectionInfo = {
@@ -117,7 +119,7 @@ export interface TelegramApi {
   deleteMessage(chatId: number, messageId: number): Promise<void>
   getMe(): Promise<BotInfo>
   /** Меню команд в чате с ботом */
-  setCommands(commands: readonly BotCommand[]): Promise<void>
+  setCommands(commands: readonly BotCommand[], scope?: CommandScope): Promise<void>
   /** Ответ на inline-запрос: виден только тому, кто спросил, и не кэшируется */
   answerInline(queryId: string, articles: readonly InlineArticle[], opts?: { button?: InlineAnswerButton }): Promise<void>
 }
@@ -274,8 +276,8 @@ export function createTelegramApi(api: Api, token: string, fetchImpl: typeof fet
       }
     },
 
-    async setCommands(commands) {
-      await call(() => api.setMyCommands([...commands]))
+    async setCommands(commands, scope = 'default') {
+      await call(() => (scope === 'default' ? api.setMyCommands([...commands]) : api.setMyCommands([...commands], { scope: { type: scope } })))
     },
 
     async answerInline(queryId, articles, opts) {

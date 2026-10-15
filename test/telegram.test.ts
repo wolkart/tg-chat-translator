@@ -105,6 +105,15 @@ test('setCommands — список команд уходит в setMyCommands', 
   assert.deepEqual(calls[0], { method: 'setMyCommands', args: [[{ command: 'start', description: 'Настройки и статус' }]] })
 })
 
+test('setCommands — для личных чатов уходит scope all_private_chats, для общего — без scope', async () => {
+  const { calls, tg } = recordingApi()
+  const commands = [{ command: 'start', description: 'Настройки и статус' }]
+  await tg.setCommands(commands, 'all_private_chats')
+  await tg.setCommands(commands)
+  assert.deepEqual(calls[0], { method: 'setMyCommands', args: [commands, { scope: { type: 'all_private_chats' } }] })
+  assert.deepEqual(calls[1], { method: 'setMyCommands', args: [commands] })
+})
+
 test('getMe — разрешено ли пользователям создавать темы', async () => {
   const { tg } = recordingApi()
   assert.equal((await tg.getMe()).allowsUsersToCreateTopics, true)
