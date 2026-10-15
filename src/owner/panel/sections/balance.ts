@@ -2,8 +2,8 @@ import { dayMonth, money, plural, roughly, spaced } from '../../../format.ts'
 import { escapeHtml } from '../../../html.ts'
 import type { Balance } from '../../../translate/account.ts'
 import { translationCost } from '../../../translate/cost.ts'
+import { warningTexts } from '../../warnings.ts'
 import { BACK, action, type Section } from '../screen.ts'
-import { modelLeaving } from '../status.ts'
 
 const REFRESH_BALANCE = { text: '🔄 Обновить', data: action('bal', 'refresh') }
 
@@ -58,7 +58,16 @@ export const BALANCE: Section = {
       lines.push(`Один перевод ≈ ${money(cost)}${left}`)
     }
     lines.push(balance.expiresAt === null ? 'Ключ бессрочный' : `Ключ действует до ${dayMonth(balance.expiresAt)}`)
-    if (price?.expiresAt) lines.push(modelLeaving(model.provider.label, price.expiresAt))
+    // Те же предупреждения, что приходят в личку: ключ истекает, деньги кончаются, модель уходит.
+    const warnings = warningTexts({
+      provider: model.provider,
+      keySource: model.keySource,
+      modelTitle: model.title,
+      balance,
+      price,
+      now: ctx.now,
+    })
+    if (warnings.length > 0) lines.push('', ...warnings.map((text) => `⚠️ ${escapeHtml(text)}`))
     return { html: lines.join('\n'), keyboard: [[REFRESH_BALANCE], [BACK]] }
   },
 

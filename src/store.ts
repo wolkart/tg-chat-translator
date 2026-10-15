@@ -41,6 +41,11 @@ export function keySetting(providerId: string): string {
 
 const KEY_PREFIX = 'key:'
 
+/** Когда последний раз ушло предупреждение этого вида: дата по UTC, «2026-10-15». */
+export function warnedSetting(kind: string): string {
+  return `warned:${kind}`
+}
+
 /** «Как в разговоре»: деловое обращение владелец включает сам, в панели. */
 export const ADDRESS_DEFAULTS: Record<string, string> = {
   [SETTING.address]: 'as-is',

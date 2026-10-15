@@ -74,8 +74,11 @@ export const THROTTLE_MS = 10 * 60 * 1000
 export type Alerts = {
   /** Общая поломка — в чат с ботом вне тем, одинаковые по ключу не чаще раза в 10 минут */
   general(key: string, text: string): Promise<void>
-  /** Сообщение владельцу вне тем без троттлинга: подключение, отключение — события, а не поломки */
-  notify(text: string): Promise<void>
+  /**
+   * Сообщение владельцу вне тем без троттлинга: подключение, отключение — события, а не поломки.
+   * false — не дошло (Telegram недоступен): тому, кто считает отправленное, есть что повторить.
+   */
+  notify(text: string): Promise<boolean>
   /** Поломка внутри разговора — в его тему, без троттлинга */
   inTopic(threadId: number, text: string): Promise<void>
   /** Строка в консоль — через ту же замену секретов */
@@ -131,8 +134,8 @@ export function createAlerts(deps: {
         }
       }
     },
-    async notify(text) {
-      await send(text)
+    notify(text) {
+      return send(text)
     },
     async inTopic(threadId, text) {
       await send(text, threadId)

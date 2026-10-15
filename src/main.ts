@@ -3,6 +3,8 @@ import { createAlerts, createScrubber } from './alerts.ts'
 import { ALLOWED_UPDATES, createApp } from './app.ts'
 import { loadEnv } from './env.ts'
 import { createTopics } from './owner/topics.ts'
+import { scheduleWarnings } from './owner/warnings.ts'
+import type { Deps } from './deps.ts'
 import { FIRST_RUN_DEFAULTS, createConfig } from './settings.ts'
 import { createInlineCheck, setupCommands, startupChecks } from './startup.ts'
 import { HOUR, openStore } from './store.ts'
@@ -56,7 +58,7 @@ await setupCommands(api, alerts.log)
 
 const inline = createInlineCheck({ api, initial: me.supportsInlineQueries, now })
 
-const app = createApp({
+const deps: Deps = {
   api,
   store,
   alerts,
@@ -71,7 +73,9 @@ const app = createApp({
   addSecret: scrub.add,
   dry,
   now,
-})
+}
+const app = createApp(deps)
+scheduleWarnings(deps, env.ownerId)
 
 bot.use((ctx) => app.handleUpdate(ctx.update))
 bot.catch((error) => {
