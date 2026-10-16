@@ -132,6 +132,7 @@ test('Find-NodeFile: сумма и имя архива для своей сбо�
   assert.match(run.out, /нет:True/)
 })
 
+
 test('Get-Code: zip из ARCHIVE распаковывается без верхней папки, чужой архив — отказ', { skip: noPwsh }, () => {
   const source = mkdtempSync(join(tmpdir(), 'translator-ps-src-'))
   write(join(source, 'tg-chat-translator/package.json'), PACKAGE)
@@ -140,6 +141,9 @@ test('Get-Code: zip из ARCHIVE распаковывается без верх�
   spawnSync('zip', ['-qr', zip, 'tg-chat-translator'], { cwd: source })
   const into = join(mkdtempSync(join(tmpdir(), 'translator-ps-into-')), 'code')
   const run = ps('install.ps1', `Get-Code '${into}'`, { ARCHIVE: zip })
+  assert.equal(run.status, 0, run.out)
+  assert.deepEqual(readdirSync(into).sort(), ['package.json', 'src'])
+})
 
 test('Get-BotProcessPattern: свой бот — да, папка -old — нет, шаблон не пустой', { skip: noPwsh }, () => {
   for (const script of ['install.ps1', 'uninstall.ps1']) {
@@ -164,9 +168,6 @@ $p2 = Get-BotProcessPattern $t2
     assert.match(run.out, /unrelated:False/, `${script}: does not match unrelated process`)
     assert.match(run.out, /trailing-slash:True/, `${script}: works with trailing slash in target`)
   }
-})
-  assert.equal(run.status, 0, run.out)
-  assert.deepEqual(readdirSync(into).sort(), ['package.json', 'src'])
 })
 
 test('uninstall.ps1: удалять нечего — «Ничего не найдено»', { skip: noPwsh }, () => {
