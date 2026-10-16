@@ -1,7 +1,9 @@
+import { setTimeout as sleep } from 'node:timers/promises'
 import { Bot } from 'grammy'
 import { createAlerts, createScrubber } from './alerts.ts'
 import { ALLOWED_UPDATES, createApp } from './app.ts'
 import { loadEnv } from './env.ts'
+import { connectTelegram, placeName, runPolling, sleepForever } from './lifecycle.ts'
 import { createTopics } from './owner/topics.ts'
 import { scheduleWarnings } from './owner/warnings.ts'
 import type { Deps } from './deps.ts'
@@ -37,14 +39,11 @@ const scrub = createScrubber(env.secrets)
 for (const key of Object.values(store.panelKeys(env.ownerId))) scrub.add(key)
 const alerts = createAlerts({ api, ownerChatId: env.ownerId, scrub, now })
 
-let me
-try {
-  me = await api.getMe()
-} catch (error) {
-  // Без getMe до владельца не достучаться — остаётся консоль.
-  console.error(`\nTelegram не принял токен бота: ${scrub(describeError(error))}\nПроверьте BOT_TOKEN в .env.\n`)
-  process.exit(1)
-}
+// Без getMe до владельца не достучаться — о сети и токене пишем только в журнал. С
+// отвергнутым токеном бот засыпает, а не падает: иначе надзиратель поднимал бы его по кругу.
+const me =
+  (await connectTelegram({ getMe: () => api.getMe(), sleep: (ms) => sleep(ms), log: alerts.log })) ??
+  (await sleepForever())
 
 const initial = config(env.ownerId)
 
@@ -94,6 +93,12 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   })
 }
 
+// Строку «@бот запущен» ждёт установщик: по ней он понимает, что бот поднялся.
 alerts.log(dry ? `@${me.username}: холостой прогон — собеседникам ничего не уходит` : `@${me.username} запущен`)
-await bot.start({ allowed_updates: [...ALLOWED_UPDATES] })
+const outcome = await runPolling({
+  start: () => bot.start({ allowed_updates: [...ALLOWED_UPDATES] }),
+  alerts,
+  place: placeName(),
+})
+if (outcome === 'sleep') await sleepForever()
 store.close()
