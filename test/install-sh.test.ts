@@ -2,10 +2,10 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { tempDir, write } from './helpers.ts'
 
 /**
  * Функции install.sh и uninstall.sh вызываются по одной: скрипт с INSTALL_SH_LIB=1 только
@@ -22,20 +22,11 @@ function bash(script: string, fn: string, args: string[] = [], env: Record<strin
   return { status: run.status, stdout: run.stdout, stderr: run.stderr }
 }
 
-function tempDir(): string {
-  return mkdtempSync(join(tmpdir(), 'translator-sh-'))
-}
-
-function write(path: string, text: string): void {
-  mkdirSync(join(path, '..'), { recursive: true })
-  writeFileSync(path, text)
-}
-
 const PACKAGE = '{\n  "name": "tg-chat-translator",\n  "version": "0.1.0"\n}\n'
 
 /** Папка с установленным ботом старой версии. */
 function installedBot(): string {
-  const dir = tempDir()
+  const dir = tempDir('translator-sh-')
   write(join(dir, 'package.json'), PACKAGE)
   write(join(dir, 'src/main.ts'), 'старый main')
   write(join(dir, 'src/old-module.ts'), 'файл, которого в новой версии нет')
@@ -47,7 +38,7 @@ function installedBot(): string {
 
 /** Распакованная новая версия. */
 function newCode(): string {
-  const dir = tempDir()
+  const dir = tempDir('translator-sh-')
   write(join(dir, 'package.json'), PACKAGE)
   write(join(dir, 'src/main.ts'), 'новый main')
   write(join(dir, '.dockerignore'), '.env\n')
@@ -80,7 +71,7 @@ test('спека: обновление — .env, база и Node на мест�
 })
 
 test('домашняя папка с пробелом и кириллицей: обновление и Node работают', { skip }, () => {
-  const home = join(tempDir(), 'Артём Иванов')
+  const home = join(tempDir('translator-sh-'), 'Артём Иванов')
   const dir = join(home, 'tg-chat-translator')
   write(join(dir, 'package.json'), PACKAGE)
   write(join(dir, 'src/main.ts'), 'старый')
@@ -95,7 +86,7 @@ test('домашняя папка с пробелом и кириллицей: �
 })
 
 test('replace_code: чужую папку не трогает', { skip }, () => {
-  const dir = tempDir()
+  const dir = tempDir('translator-sh-')
   write(join(dir, 'Документы/важное.txt'), 'не удалять')
   const run = bash('install.sh', 'replace_code', [newCode(), dir])
   assert.equal(run.status, 1)
@@ -104,7 +95,7 @@ test('replace_code: чужую папку не трогает', { skip }, () => 
 })
 
 test('replace_code: папка, где после оборванной установки только Node, — наша', { skip }, () => {
-  const dir = tempDir()
+  const dir = tempDir('translator-sh-')
   write(join(dir, 'node/bin/node'), 'свой node')
   const run = bash('install.sh', 'replace_code', [newCode(), dir])
   assert.equal(run.status, 0, run.stderr)
@@ -113,10 +104,10 @@ test('replace_code: папка, где после оборванной уста�
 })
 
 test('check_dir: нет папки, пустая, наша — можно; чужая — отказ', { skip }, () => {
-  assert.equal(bash('install.sh', 'check_dir', [], { DIR: join(tempDir(), 'нет-такой') }).status, 0)
-  assert.equal(bash('install.sh', 'check_dir', [], { DIR: tempDir() }).status, 0)
+  assert.equal(bash('install.sh', 'check_dir', [], { DIR: join(tempDir('translator-sh-'), 'нет-такой') }).status, 0)
+  assert.equal(bash('install.sh', 'check_dir', [], { DIR: tempDir('translator-sh-') }).status, 0)
   assert.equal(bash('install.sh', 'check_dir', [], { DIR: installedBot() }).status, 0)
-  const foreign = tempDir()
+  const foreign = tempDir('translator-sh-')
   write(join(foreign, 'photo.jpg'), 'x')
   assert.equal(bash('install.sh', 'check_dir', [], { DIR: foreign }).status, 1)
 })
@@ -130,14 +121,14 @@ test('check_dir: клон для разработки (с .git) — не наш�
 })
 
 test('check_dir: папка только с node/ и .DS_Store от Finder — можно', { skip }, () => {
-  const dir = tempDir()
+  const dir = tempDir('translator-sh-')
   write(join(dir, 'node/bin/node'), 'свой node')
   write(join(dir, '.DS_Store'), '')
   assert.equal(bash('install.sh', 'check_dir', [], { DIR: dir }).status, 0)
 })
 
 test('show_log_tail: токен из .env в журнале заменяется на ***', { skip }, () => {
-  const dir = tempDir()
+  const dir = tempDir('translator-sh-')
   write(join(dir, '.env'), 'BOT_TOKEN=123456:SECRET-token_abc\nOWNER_ID=1\n')
   const run = spawnSync(
     'bash',
@@ -164,7 +155,7 @@ test('спека: macOS 13.5 и новее — да, старше — нет', {
 
 /** «nodejs.org» во временной папке: SHASUMS256.txt и архив с bin/node, который печатает версию. */
 function fakeNodeDist(opts: { corrupt?: boolean } = {}): string {
-  const dist = tempDir()
+  const dist = tempDir('translator-sh-')
   const folder = join(dist, 'build', 'node-v24.99.0-darwin-arm64')
   write(join(folder, 'bin/node'), '#!/bin/sh\necho v24.99.0\n')
   chmodSync(join(folder, 'bin/node'), 0o755)
@@ -182,14 +173,14 @@ function fakeNodeDist(opts: { corrupt?: boolean } = {}): string {
 }
 
 test('ensure_node: скачивает, сверяет сумму и кладёт Node в папку бота', { skip }, () => {
-  const dest = join(tempDir(), 'node')
+  const dest = join(tempDir('translator-sh-'), 'node')
   const run = bash('install.sh', 'ensure_node', ['darwin-arm64', dest], { NODE_DIST: `file://${fakeNodeDist()}` })
   assert.equal(run.status, 0, run.stderr)
   assert.equal(spawnSync(join(dest, 'bin/node'), { encoding: 'utf8' }).stdout.trim(), 'v24.99.0')
 })
 
 test('спека: обновление — Node 24 уже на месте, повторно не скачивается', { skip }, () => {
-  const dest = join(tempDir(), 'node')
+  const dest = join(tempDir('translator-sh-'), 'node')
   bash('install.sh', 'ensure_node', ['darwin-arm64', dest], { NODE_DIST: `file://${fakeNodeDist()}` })
   const again = bash('install.sh', 'ensure_node', ['darwin-arm64', dest], { NODE_DIST: 'file:///nonexistent' })
   assert.equal(again.status, 0, again.stderr)
@@ -197,7 +188,7 @@ test('спека: обновление — Node 24 уже на месте, по�
 })
 
 test('спека: архив Node повреждён — остановка, папки Node нет', { skip }, () => {
-  const dest = join(tempDir(), 'node')
+  const dest = join(tempDir('translator-sh-'), 'node')
   const run = bash('install.sh', 'ensure_node', ['darwin-arm64', dest], { NODE_DIST: `file://${fakeNodeDist({ corrupt: true })}` })
   assert.equal(run.status, 1)
   assert.match(run.stderr, /Скачанный Node повреждён или подменён — запустите команду ещё раз/)
@@ -205,35 +196,35 @@ test('спека: архив Node повреждён — остановка, п�
 })
 
 test('ensure_node: nodejs.org недоступен — текст про VPN', { skip }, () => {
-  const run = bash('install.sh', 'ensure_node', ['darwin-arm64', join(tempDir(), 'node')], { NODE_DIST: 'file:///nonexistent' })
+  const run = bash('install.sh', 'ensure_node', ['darwin-arm64', join(tempDir('translator-sh-'), 'node')], { NODE_DIST: 'file:///nonexistent' })
   assert.equal(run.status, 1)
   assert.match(run.stderr, /Не скачать Node с nodejs\.org\. Если вы в России — включите VPN/)
 })
 
 test('download_code: архив из ARCHIVE распаковывается без верхней папки', { skip }, () => {
-  const source = tempDir()
+  const source = tempDir('translator-sh-')
   write(join(source, 'tg-chat-translator/package.json'), PACKAGE)
   write(join(source, 'tg-chat-translator/src/main.ts'), 'main')
   const archive = join(source, 'code.tar.gz')
   spawnSync('tar', ['-czf', archive, '-C', source, 'tg-chat-translator'])
-  const into = tempDir()
+  const into = tempDir('translator-sh-')
   const run = bash('install.sh', 'download_code', [into], { ARCHIVE: archive })
   assert.equal(run.status, 0, run.stderr)
   assert.deepEqual(readdirSync(into).sort(), ['package.json', 'src'])
 })
 
 test('download_code: в архиве не наш код — отказ', { skip }, () => {
-  const source = tempDir()
+  const source = tempDir('translator-sh-')
   write(join(source, 'other/package.json'), '{ "name": "other" }')
   const archive = join(source, 'code.tar.gz')
   spawnSync('tar', ['-czf', archive, '-C', source, 'other'])
-  const run = bash('install.sh', 'download_code', [tempDir()], { ARCHIVE: archive })
+  const run = bash('install.sh', 'download_code', [tempDir('translator-sh-')], { ARCHIVE: archive })
   assert.equal(run.status, 1)
   assert.match(run.stderr, /не код переводчика/)
 })
 
 test('write_plist: файл автозапуска проходит plutil и указывает на свой Node', { skip: process.platform !== 'darwin' }, () => {
-  const home = tempDir()
+  const home = tempDir('translator-sh-')
   const dir = join(home, 'tg & bot')
   const run = bash('install.sh', 'write_plist', [], { HOME: home, DIR: dir })
   assert.equal(run.status, 0, run.stderr)
@@ -245,7 +236,7 @@ test('write_plist: файл автозапуска проходит plutil и у
 })
 
 test('DIR=относительный путь становится абсолютным: Docker не примет его за именованный том', { skip }, () => {
-  const cwd = realpathSync(tempDir())
+  const cwd = realpathSync(tempDir('translator-sh-'))
   const run = spawnSync('bash', ['-c', `INSTALL_SH_LIB=1 source "${join(ROOT, 'install.sh')}"; printf '%s' "$DIR"`], {
     encoding: 'utf8',
     cwd,

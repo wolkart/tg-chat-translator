@@ -1,8 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
@@ -11,13 +10,10 @@ import { backupDatabase } from '../src/install/backup.ts'
 import { renderEnv, writeEnvStep } from '../src/install/env-file.ts'
 import { main } from '../src/install/setup.ts'
 import { TOKEN, fakeClock, fakeFetch, fakeIo, json, setupContext } from './install-fakes.ts'
+import { tempDir } from './helpers.ts'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const noNetwork = fakeFetch(() => new Error('сеть в этом тесте не нужна')).fetchImpl
-
-function tempDir(): string {
-  return mkdtempSync(join(tmpdir(), 'translator-install-'))
-}
 
 test('renderEnv: новый файл — пояснение, токен и владелец, больше ничего', () => {
   const text = renderEnv('', { BOT_TOKEN: TOKEN, OWNER_ID: '100001' })
@@ -33,7 +29,7 @@ test('renderEnv: в старом файле меняются только наш
 })
 
 test('спека: первая установка — в .env токен и владелец, читать может только этот пользователь', async () => {
-  const envPath = join(tempDir(), '.env')
+  const envPath = join(tempDir('translator-install-'), '.env')
   const { io, output } = fakeIo()
   const ctx = setupContext({
     io,
@@ -48,7 +44,7 @@ test('спека: первая установка — в .env токен и вл
 })
 
 test('спека: пустой .env, созданный заранее (сервер), получает права 600 и значения', async () => {
-  const envPath = join(tempDir(), '.env')
+  const envPath = join(tempDir('translator-install-'), '.env')
   writeFileSync(envPath, '', { mode: 0o644 })
   const { io } = fakeIo()
   const ctx = setupContext({ io, fetch: noNetwork, envPath, answers: { token: TOKEN, ownerId: 7 } })
@@ -58,7 +54,7 @@ test('спека: пустой .env, созданный заранее (серв
 })
 
 test('спека: .env уже есть и всё принято — файл не трогаем', async () => {
-  const envPath = join(tempDir(), '.env')
+  const envPath = join(tempDir('translator-install-'), '.env')
   const before = `BOT_TOKEN=${TOKEN}\nOWNER_ID=100001\n`
   writeFileSync(envPath, before, { mode: 0o640 })
   const { io, output } = fakeIo()
@@ -81,7 +77,7 @@ function healthyNetwork() {
 }
 
 test('спека: setup.ts целиком — связь, токен, владелец, .env; повторный запуск без вопросов', async () => {
-  const envPath = join(tempDir(), '.env')
+  const envPath = join(tempDir('translator-install-'), '.env')
   const first = fakeIo({ masked: [TOKEN], answers: ['нет', 'да'] })
   const clock = fakeClock()
   const code = await main(['--env', envPath], { io: first.io, fetch: healthyNetwork().fetchImpl, ...clock })
@@ -96,7 +92,7 @@ test('спека: setup.ts целиком — связь, токен, владе
 })
 
 test('setup.ts: нет связи с Telegram — код 1, файл не создан', async () => {
-  const envPath = join(tempDir(), '.env')
+  const envPath = join(tempDir('translator-install-'), '.env')
   const { io, text } = fakeIo()
   const code = await main(['--env', envPath], { io, fetch: noNetwork, ...fakeClock() })
   assert.equal(code, 1)
@@ -111,7 +107,7 @@ function databaseWithSetting(path: string): void {
 }
 
 test('backupDatabase: копия открывается и содержит настройки, даже пока база открыта ботом', () => {
-  const dir = tempDir()
+  const dir = tempDir('translator-install-')
   const dbPath = join(dir, 'translator.db')
   databaseWithSetting(dbPath)
   const bot = new DatabaseSync(dbPath)
@@ -133,7 +129,7 @@ test('backupDatabase: копия открывается и содержит на
 })
 
 test('backupDatabase: существующую копию не перезаписывает', () => {
-  const dir = tempDir()
+  const dir = tempDir('translator-install-')
   const dbPath = join(dir, 'translator.db')
   databaseWithSetting(dbPath)
   const out = join(dir, 'backup.db')
@@ -143,7 +139,7 @@ test('backupDatabase: существующую копию не перезапи�
 })
 
 test('backup.ts из командной строки: код 0 и файл; базы нет — код 1 и понятный текст', () => {
-  const dir = tempDir()
+  const dir = tempDir('translator-install-')
   const dbPath = join(dir, 'translator.db')
   databaseWithSetting(dbPath)
   const script = join(ROOT, 'src/install/backup.ts')

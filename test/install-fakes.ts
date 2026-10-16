@@ -45,9 +45,7 @@ export function fakeFetch(handler: Handler) {
   return { fetchImpl, calls }
 }
 
-export function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
-}
+export { jsonResponse as json } from './helpers.ts'
 
 /** Часы, которые двигает только sleep: ожидание в 3 минуты проходит мгновенно. */
 export function fakeClock(start = 1_760_000_000_000) {

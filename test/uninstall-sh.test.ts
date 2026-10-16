@@ -1,11 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
+import { tempDir, write } from './helpers.ts'
 
 /**
  * uninstall.sh на Mac — целиком, но в подменённой домашней папке: бот, его база и файл
@@ -14,14 +14,9 @@ import { DatabaseSync } from 'node:sqlite'
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const skip = process.platform !== 'darwin'
 
-function write(path: string, text: string): void {
-  mkdirSync(join(path, '..'), { recursive: true })
-  writeFileSync(path, text)
-}
-
 /** Заглушка launchctl: логирует вызовы, выход 1 для 'print', 0 иначе. */
 function fakeLaunchctl(): { bin: string; logFile: string } {
-  const bin = mkdtempSync(join(tmpdir(), 'translator-launchctl-'))
+  const bin = tempDir('translator-launchctl-')
   const logFile = join(bin, 'launchctl.log')
   const script = `#!/bin/bash
 echo "$@" >> "${logFile}"
@@ -35,7 +30,7 @@ exit 0`
 
 /** Домашняя папка с установленным ботом: свой Node (ссылка на текущий), база, автозапуск. */
 function homeWithBot() {
-  const home = mkdtempSync(join(tmpdir(), 'translator-home-'))
+  const home = tempDir('translator-home-')
   const dir = join(home, 'tg-chat-translator')
   write(join(dir, 'package.json'), '{\n  "name": "tg-chat-translator"\n}\n')
   write(join(dir, 'src/main.ts'), '')
@@ -100,9 +95,7 @@ test('спека: база есть, Node нет — предупреждени�
   const { home, dir } = homeWithBot()
   // Удаляем Node, оставляя базу
   const nodeDir = join(dir, 'node')
-  if (existsSync(nodeDir)) {
-    spawnSync('rm', ['-rf', nodeDir])
-  }
+  rmSync(nodeDir, { recursive: true })
   const result = uninstall(home, ['--yes'])
   assert.equal(result.status, 0, result.stderr)
   assert.equal(existsSync(dir), false)
@@ -110,14 +103,14 @@ test('спека: база есть, Node нет — предупреждени�
 })
 
 test('спека: удалять нечего — «Ничего не найдено», код 0', { skip }, () => {
-  const home = mkdtempSync(join(tmpdir(), 'translator-home-'))
+  const home = tempDir('translator-home-')
   const result = uninstall(home, ['--yes'])
   assert.equal(result.status, 0)
   assert.match(result.stdout, /Ничего не найдено — бот на этой машине не стоит/)
 })
 
 test('uninstall.sh: чужая папка с тем же именем не удаляется', { skip }, () => {
-  const home = mkdtempSync(join(tmpdir(), 'translator-home-'))
+  const home = tempDir('translator-home-')
   write(join(home, 'tg-chat-translator/заметки.txt'), 'не удалять')
   const result = uninstall(home, ['--yes'])
   assert.equal(result.status, 0)
@@ -125,7 +118,7 @@ test('uninstall.sh: чужая папка с тем же именем не уд�
 })
 
 test('спека: папка оборванной установки (только .env и node) — удаляется, токен не остаётся', { skip }, () => {
-  const home = mkdtempSync(join(tmpdir(), 'translator-home-'))
+  const home = tempDir('translator-home-')
   write(join(home, 'tg-chat-translator/.env'), 'BOT_TOKEN=x\n')
   write(join(home, 'tg-chat-translator/node/bin/node'), 'свой node')
   const result = uninstall(home, ['--yes'])
@@ -134,7 +127,7 @@ test('спека: папка оборванной установки (тольк
 })
 
 test('uninstall.sh: пустая папка с тем же именем своей не считается', { skip }, () => {
-  const home = mkdtempSync(join(tmpdir(), 'translator-home-'))
+  const home = tempDir('translator-home-')
   mkdirSync(join(home, 'tg-chat-translator'))
   const result = uninstall(home, ['--yes'])
   assert.match(result.stdout, /Ничего не найдено/)

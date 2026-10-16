@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { Message, Update } from 'grammy/types'
 
 /** Выдуманные значения из обезличенных образцов test/fixtures. */
@@ -24,4 +26,15 @@ export function messageFixture(name: string): Message {
   const message = update.business_message ?? update.message
   if (!message) throw new Error(`в образце ${name} нет сообщения`)
   return message
+}
+
+/** Записать файл, создав недостающие папки. */
+export function write(path: string, text: string): void {
+  mkdirSync(join(path, '..'), { recursive: true })
+  writeFileSync(path, text)
+}
+
+/** Новая временная папка с понятным префиксом. */
+export function tempDir(prefix: string): string {
+  return mkdtempSync(join(tmpdir(), prefix))
 }

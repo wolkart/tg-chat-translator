@@ -1,10 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { tempDir, write } from './helpers.ts'
 
 /**
  * Windows-скрипты. Живьём они проверяются на Windows; здесь — то, что можно без неё:
@@ -14,6 +14,8 @@ import { fileURLToPath } from 'node:url'
  */
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const SCRIPTS = ['install.ps1', 'uninstall.ps1', 'run.ps1']
+// Скрипты установки и удаления: run.ps1 — надзиратель, к ним не относится.
+const SETUP_SCRIPTS = ['install.ps1', 'uninstall.ps1']
 
 function findPwsh(): string | null {
   if (process.env.PWSH) return process.env.PWSH
@@ -46,7 +48,7 @@ test('Windows-скрипты: без синтаксиса PowerShell 7, кото
 })
 
 test('install.ps1 и uninstall.ps1: exit не вызывается — он закрыл бы окно человека', () => {
-  for (const script of ['install.ps1', 'uninstall.ps1']) {
+  for (const script of SETUP_SCRIPTS) {
     assert.doesNotMatch(codeOnly(readFileSync(join(ROOT, script), 'utf8')), /\bexit\b/i, script)
   }
 })
@@ -77,22 +79,17 @@ test('Windows-скрипты: PowerShell разбирает их без ошиб
   }
 })
 
-function write(path: string, text: string): void {
-  mkdirSync(join(path, '..'), { recursive: true })
-  writeFileSync(path, text)
-}
-
 const PACKAGE = '{\n  "name": "tg-chat-translator"\n}\n'
 
 test('спека: обновление на Windows — .env, база и Node на месте, удалённый файл ушёл', { skip: noPwsh }, () => {
-  const dir = mkdtempSync(join(tmpdir(), 'translator-ps-'))
+  const dir = tempDir('translator-ps-')
   write(join(dir, 'package.json'), PACKAGE)
   write(join(dir, 'src/main.ts'), 'старый')
   write(join(dir, 'src/old-module.ts'), 'ушёл в новой версии')
   write(join(dir, '.env'), 'BOT_TOKEN=x\n')
   write(join(dir, 'data/translator.db'), 'база')
   write(join(dir, 'node/node.exe'), 'node')
-  const fresh = mkdtempSync(join(tmpdir(), 'translator-ps-new-'))
+  const fresh = tempDir('translator-ps-new-')
   write(join(fresh, 'package.json'), PACKAGE)
   write(join(fresh, 'src/main.ts'), 'новый')
   write(join(fresh, 'run.ps1'), '')
@@ -108,9 +105,9 @@ test('спека: обновление на Windows — .env, база и Node �
 })
 
 test('Update-Code: чужую папку не трогает', { skip: noPwsh }, () => {
-  const dir = mkdtempSync(join(tmpdir(), 'translator-ps-'))
+  const dir = tempDir('translator-ps-')
   write(join(dir, 'фото.jpg'), 'не удалять')
-  const fresh = mkdtempSync(join(tmpdir(), 'translator-ps-new-'))
+  const fresh = tempDir('translator-ps-new-')
   write(join(fresh, 'package.json'), PACKAGE)
   const run = ps('install.ps1', `try { Update-Code '${fresh}' '${dir}' } catch { 'поймано' }`)
   assert.match(run.out, /уже занята чем-то другим/)
@@ -118,11 +115,11 @@ test('Update-Code: чужую папку не трогает', { skip: noPwsh },
 })
 
 test('Update-Code: клон для разработки (с .git) — не наша папка, файлы целы', { skip: noPwsh }, () => {
-  const dir = mkdtempSync(join(tmpdir(), 'translator-ps-'))
+  const dir = tempDir('translator-ps-')
   write(join(dir, 'package.json'), PACKAGE)
   write(join(dir, 'src/main.ts'), 'мои правки')
   write(join(dir, '.git/HEAD'), 'ref: refs/heads/main')
-  const fresh = mkdtempSync(join(tmpdir(), 'translator-ps-new-'))
+  const fresh = tempDir('translator-ps-new-')
   write(join(fresh, 'package.json'), PACKAGE)
   const run = ps('install.ps1', `try { Update-Code '${fresh}' '${dir}' } catch { 'поймано' }`)
   assert.match(run.out, /уже занята чем-то другим/)
@@ -131,7 +128,7 @@ test('Update-Code: клон для разработки (с .git) — не на�
 })
 
 test('Test-OnlyKeep: desktop.ini и Thumbs.db Проводника не мешают', { skip: noPwsh }, () => {
-  const dir = mkdtempSync(join(tmpdir(), 'translator-ps-'))
+  const dir = tempDir('translator-ps-')
   write(join(dir, 'node/node.exe'), 'node')
   write(join(dir, 'desktop.ini'), '')
   write(join(dir, 'Thumbs.db'), '')
@@ -141,11 +138,8 @@ test('Test-OnlyKeep: desktop.ini и Thumbs.db Проводника не меша
 })
 
 test('автозагрузка Windows: New-Item с -Force на HKCU/RunKey стёр бы чужие записи', () => {
-  for (const script of ['install.ps1', 'uninstall.ps1']) {
-    const code = readFileSync(join(ROOT, script), 'utf8')
-      .split('\n')
-      .map((line) => line.replace(/#.*$/, ''))
-      .join('\n')
+  for (const script of SETUP_SCRIPTS) {
+    const code = codeOnly(readFileSync(join(ROOT, script), 'utf8'))
     for (const line of code.split('\n')) {
       if (/New-Item/.test(line) && /(HKCU:|\$RunKey)/.test(line)) assert.doesNotMatch(line, /-Force/, `${script}: ${line}`)
     }
@@ -159,7 +153,7 @@ test('Find-NodeFile: сумма и имя архива для своей сбо�
     `${'c'.repeat(64)}  node-v24.22.0-win-x64.zip`,
     `${'d'.repeat(64)}  node-v24.22.0-win-x64.7z`,
   ].join('\n')
-  const file = join(mkdtempSync(join(tmpdir(), 'translator-ps-')), 'SHASUMS256.txt')
+  const file = join(tempDir('translator-ps-'), 'SHASUMS256.txt')
   writeFileSync(file, sums)
   const run = ps('install.ps1', `$r = Find-NodeFile (Get-Content -Raw '${file}') 'win-x64'; "$($r[0])|$($r[1])"; $n = Find-NodeFile (Get-Content -Raw '${file}') 'win-ia32'; "нет:$($null -eq $n)"`)
   assert.equal(run.status, 0, run.out)
@@ -167,21 +161,20 @@ test('Find-NodeFile: сумма и имя архива для своей сбо�
   assert.match(run.out, /нет:True/)
 })
 
-
 test('Get-Code: zip из ARCHIVE распаковывается без верхней папки, чужой архив — отказ', { skip: noPwsh }, () => {
-  const source = mkdtempSync(join(tmpdir(), 'translator-ps-src-'))
+  const source = tempDir('translator-ps-src-')
   write(join(source, 'tg-chat-translator/package.json'), PACKAGE)
   write(join(source, 'tg-chat-translator/src/main.ts'), 'main')
   const zip = join(source, 'code.zip')
   spawnSync('zip', ['-qr', zip, 'tg-chat-translator'], { cwd: source })
-  const into = join(mkdtempSync(join(tmpdir(), 'translator-ps-into-')), 'code')
+  const into = join(tempDir('translator-ps-into-'), 'code')
   const run = ps('install.ps1', `Get-Code '${into}'`, { ARCHIVE: zip })
   assert.equal(run.status, 0, run.out)
   assert.deepEqual(readdirSync(into).sort(), ['package.json', 'src'])
 })
 
 test('Get-BotProcessPattern: свой бот — да, папка -old — нет, шаблон не пустой', { skip: noPwsh }, () => {
-  for (const script of ['install.ps1', 'uninstall.ps1']) {
+  for (const script of SETUP_SCRIPTS) {
     const t = 'C:\\Users\\A\\tg-chat-translator'
     const code = `
 $p = Get-BotProcessPattern '${t}'
@@ -206,14 +199,14 @@ $p2 = Get-BotProcessPattern $t2
 })
 
 test('uninstall.ps1: удалять нечего — «Ничего не найдено»', { skip: noPwsh }, () => {
-  const home = mkdtempSync(join(tmpdir(), 'translator-ps-home-'))
+  const home = tempDir('translator-ps-home-')
   const run = ps('uninstall.ps1', 'Uninstall-Translator -Yes', { DIR: join(home, 'tg-chat-translator'), USERPROFILE: home })
   assert.equal(run.status, 0, run.out)
   assert.match(run.out, /Ничего не найдено — бот на этой машине не стоит/)
 })
 
 test('Stop-Bot ждёт выхода процессов, а бот в install.ps1 останавливается после вопросов setup.ts', () => {
-  for (const script of ['install.ps1', 'uninstall.ps1']) {
+  for (const script of SETUP_SCRIPTS) {
     assert.match(codeOnly(readFileSync(join(ROOT, script), 'utf8')), /Wait-Process -Id \$_\.ProcessId -Timeout 10/, script)
   }
   const code = codeOnly(readFileSync(join(ROOT, 'install.ps1'), 'utf8'))
