@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -242,4 +242,14 @@ test('write_plist: файл автозапуска проходит plutil и у
   const text = readFileSync(plist, 'utf8')
   assert.ok(text.includes(`${home}/tg &amp; bot/node/bin/node`))
   assert.ok(text.includes('<string>src/main.ts</string>'))
+})
+
+test('DIR=относительный путь становится абсолютным: Docker не примет его за именованный том', { skip }, () => {
+  const cwd = realpathSync(tempDir())
+  const run = spawnSync('bash', ['-c', `INSTALL_SH_LIB=1 source "${join(ROOT, 'install.sh')}"; printf '%s' "$DIR"`], {
+    encoding: 'utf8',
+    cwd,
+    env: { ...process.env, DIR: 'rel' },
+  })
+  assert.equal(run.stdout, join(cwd, 'rel'))
 })

@@ -11,6 +11,10 @@ set -euo pipefail
 
 PROJECT="tg-chat-translator"
 DIR="${DIR:-$HOME/tg-chat-translator}"
+# Относительный путь ломает и Docker (`-v путь:/out` с ним — именованный том, а не папка), и
+# launchd (WorkingDirectory должен быть абсолютным).
+case "$DIR" in /*) ;; *) DIR="$PWD/$DIR" ;; esac
+KEEP=".env data node"
 LABEL="com.github.wolkart.tg-chat-translator"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 RAW="https://raw.githubusercontent.com/wolkart/tg-chat-translator/main"
@@ -37,6 +41,26 @@ ask() {
 is_ours() {
   # Папка с .git — клон для разработки, а не установка: её удалять нельзя.
   [ ! -e "$1/.git" ] && [ -f "$1/src/main.ts" ] && [ -f "$1/package.json" ] && grep -q '"name": "tg-chat-translator"' "$1/package.json"
+}
+
+# Папка, где лежит только то, что переживает обновление (или ничего), — тоже наша:
+# прошлая установка могла оборваться, успев скачать один Node. .DS_Store кладёт Finder, стоит
+# открыть папку.
+only_keep() {
+  local entry
+  for entry in "$1"/* "$1"/.[!.]* "$1"/..?*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    [ "$(basename "$entry")" = ".DS_Store" ] && continue
+    case " $KEEP " in *" $(basename "$entry") "*) ;; *) return 1 ;; esac
+  done
+  return 0
+}
+
+# Наша папка — установленный бот или оборванная установка (в ней уже может лежать токен в
+# .env, и «Ничего не найдено» оставило бы его на диске). Пустую папку своей не считаем.
+is_our_dir() {
+  is_ours "$1" && return 0
+  [ -d "$1" ] && [ -n "$(ls -A "$1" 2> /dev/null)" ] && only_keep "$1"
 }
 
 backup_path() {
@@ -82,7 +106,7 @@ uninstall_mac() {
   local domain agent=0 folder=0
   domain="gui/$(id -u)"
   { [ -f "$PLIST" ] || launchctl print "$domain/$LABEL" > /dev/null 2>&1; } && agent=1
-  is_ours "$DIR" && folder=1
+  is_our_dir "$DIR" && folder=1
   [ "$agent$folder" = 00 ] && nothing_found
 
   say "Нашёл вот это:"
@@ -140,7 +164,7 @@ uninstall_linux() {
     command -v sudo > /dev/null 2>&1 || die "Не хватает прав. Войдите на сервер под root и запустите команду снова."
     SUDO="sudo"
   fi
-  is_ours "$DIR" && folder=1
+  is_our_dir "$DIR" && folder=1
 
   DOCKER=""
   if command -v docker > /dev/null 2>&1; then

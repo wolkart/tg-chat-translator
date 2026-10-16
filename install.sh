@@ -20,6 +20,9 @@ set -euo pipefail
 REPO="wolkart/tg-chat-translator"
 BRANCH="${BRANCH:-main}"
 DIR="${DIR:-$HOME/tg-chat-translator}"
+# Относительный путь ломает и Docker (`-v путь:/out` с ним — именованный том, а не папка), и
+# launchd (WorkingDirectory должен быть абсолютным).
+case "$DIR" in /*) ;; *) DIR="$PWD/$DIR" ;; esac
 ARCHIVE="${ARCHIVE:-}"
 NODE_DIST="${NODE_DIST:-https://nodejs.org/dist}"
 NODE_MAJOR=24
@@ -286,6 +289,10 @@ install_mac() {
 
   say "Скачиваю бота…"
   work=$(mktemp -d "$HOME/.tg-chat-translator-new.XXXXXX")
+  # Очистка при любом выходе, в том числе через die: иначе на диске остаются скрытая папка в
+  # домашней и лог сборки. Пути подставляются сейчас: work локальная, а EXIT сработает уже вне
+  # функции, где под set -u ссылка на неё упала бы. %q — на случай апострофа в имени папки.
+  trap "rm -rf $(printf '%q' "$work") $(printf '%q' "$work.tar.gz") $(printf '%q' "$work.npm.log")" EXIT
   download_code "$work"
   # Зависимости ставим во временную папку: не поставились — старая версия работает дальше.
   (cd "$work" && npm ci --omit=dev --no-audit --no-fund --loglevel=error) > "$work.npm.log" 2>&1 || {
@@ -345,6 +352,9 @@ wait_started_docker() {
 
 install_linux() {
   local work build_log first_time=1
+  # Чужую папку отвергаем до sudo и установки Docker: отказ после правок системы — поздний.
+  check_dir
+  [ -f "$DIR/.env" ] && grep -qE '^OWNER_ID=[0-9]+' "$DIR/.env" && first_time=0
   # Ставить пакеты и говорить с Docker может только root. Вошёл не root — работаем через
   # sudo, а не падаем на середине с «Permission denied».
   SUDO=""
@@ -373,10 +383,9 @@ install_linux() {
   fi
   $DOCKER compose version > /dev/null 2>&1 || die "Нет docker compose. Обновите Docker до свежей версии."
 
-  check_dir
-  [ -f "$DIR/.env" ] && grep -qE '^OWNER_ID=[0-9]+' "$DIR/.env" && first_time=0
   say "Скачиваю бота…"
   work=$(mktemp -d)
+  trap "rm -rf $(printf '%q' "$work") $(printf '%q' "$work.tar.gz")" EXIT
   download_code "$work"
   replace_code "$work" "$DIR"
   ok "Бот — в папке $DIR"
@@ -388,6 +397,7 @@ install_linux() {
     die "Docker Hub недоступен — для серверов в России он закрыт. Возьмите сервер за рубежом."
   say "Собираю бота…"
   build_log=$(mktemp)
+  trap "rm -rf $(printf '%q' "$work") $(printf '%q' "$work.tar.gz") $(printf '%q' "$build_log")" EXIT
   $DOCKER compose build > "$build_log" 2>&1 || {
     tail -n 30 "$build_log"
     die "Сборка не удалась — выше последние строки."

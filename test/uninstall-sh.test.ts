@@ -123,3 +123,19 @@ test('uninstall.sh: чужая папка с тем же именем не уд�
   assert.equal(result.status, 0)
   assert.equal(readFileSync(join(home, 'tg-chat-translator/заметки.txt'), 'utf8'), 'не удалять')
 })
+
+test('спека: папка оборванной установки (только .env и node) — удаляется, токен не остаётся', { skip }, () => {
+  const home = mkdtempSync(join(tmpdir(), 'translator-home-'))
+  write(join(home, 'tg-chat-translator/.env'), 'BOT_TOKEN=x\n')
+  write(join(home, 'tg-chat-translator/node/bin/node'), 'свой node')
+  const result = uninstall(home, ['--yes'])
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(existsSync(join(home, 'tg-chat-translator')), false)
+})
+
+test('uninstall.sh: пустая папка с тем же именем своей не считается', { skip }, () => {
+  const home = mkdtempSync(join(tmpdir(), 'translator-home-'))
+  mkdirSync(join(home, 'tg-chat-translator'))
+  const result = uninstall(home, ['--yes'])
+  assert.match(result.stdout, /Ничего не найдено/)
+})
