@@ -143,3 +143,56 @@ test('связь: Telegram и OpenRouter проверяются одноврем
   // По очереди второй запрос стартовал бы после ответа первого: к ответу первого started был бы 1.
   assert.equal(bothStarted, true)
 })
+
+test('callBotApi: статус 200, но тело не JSON — это обрыв, а не «ошибка Telegram 200»', async () => {
+  const html = fakeFetch(() => new Response('<html>captive portal</html>', { status: 200 }))
+  assert.deepEqual(await callBotApi(html.fetchImpl, TOKEN, 'getMe'), { kind: 'network' })
+})
+
+test('токен: getMe без username — отказ про связь, а не «найден»', async () => {
+  const { io, output } = fakeIo({ masked: [TOKEN] })
+  const { fetchImpl } = fakeFetch(() => json({ ok: true, result: { id: 1, is_bot: true } }))
+  const result = await tokenStep.run(setupContext({ io, fetch: fetchImpl }))
+  assert.deepEqual(result, { ok: false, reason: TELEGRAM_UNREACHABLE })
+  assert.ok(!output.some((line) => line.includes('найден')))
+})
+
+test('токен: сеть пропала один раз, потом getMe ответил — токен принят, вопрос задан один раз', async () => {
+  const { io, output } = fakeIo({ masked: [TOKEN] })
+  let n = 0
+  const { fetchImpl, calls } = fakeFetch(() => (n++ === 0 ? new TypeError('fetch failed') : GET_ME_OK()))
+  const ctx = setupContext({ io, fetch: fetchImpl })
+  assert.deepEqual(await tokenStep.run(ctx), { ok: true })
+  assert.equal(ctx.answers.token, TOKEN)
+  assert.equal(calls.length, 2)
+  assert.equal(output.filter((line) => line === 'Токен бота: ').length, 1)
+})
+
+test('токен: три сбоя подряд — прежний отказ про VPN, две паузы по 3 секунды', async () => {
+  const { io } = fakeIo({ masked: [TOKEN] })
+  const { fetchImpl, calls } = fakeFetch(() => new TypeError('fetch failed'))
+  const pauses: number[] = []
+  const ctx = setupContext({
+    io,
+    fetch: fetchImpl,
+    sleep: async (ms: number) => {
+      pauses.push(ms)
+    },
+  })
+  assert.deepEqual(await tokenStep.run(ctx), { ok: false, reason: TELEGRAM_UNREACHABLE })
+  assert.equal(calls.length, 3)
+  assert.deepEqual(pauses, [3_000, 3_000])
+})
+
+test('токен: 429 и 5xx повторяются, 401 — нет', async () => {
+  const rate = fakeFetch(() => json({ ok: false, error_code: 429, description: 'Too Many Requests' }, 429))
+  const first = await tokenStep.run(setupContext({ io: fakeIo({ masked: [TOKEN] }).io, fetch: rate.fetchImpl }))
+  assert.deepEqual(first, { ok: false, reason: 'Telegram ответил ошибкой 429 — попробуйте через минуту.' })
+  assert.equal(rate.calls.length, 3)
+
+  // 401 — токен не тот: повтора нет, сразу вопрос заново (второй вызов — уже другой токен).
+  const denied = fakeFetch((url) => (url.includes(OTHER_TOKEN) ? UNAUTHORIZED() : GET_ME_OK()))
+  const ctx = setupContext({ io: fakeIo({ masked: [OTHER_TOKEN, TOKEN] }).io, fetch: denied.fetchImpl })
+  assert.deepEqual(await tokenStep.run(ctx), { ok: true })
+  assert.equal(denied.calls.length, 2)
+})

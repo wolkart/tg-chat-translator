@@ -32,7 +32,9 @@ export async function callBotApi<T = unknown>(
   try {
     body = (await response.json()) as Body
   } catch {
-    // Не JSON — ответил не Bot API, а прокси или балансировщик перед ним.
+    // Статус 2xx, но тело оборвалось (таймаут чтения) или не JSON, — это обрыв связи, а не
+    // «ошибка Telegram 200». Не 2xx — ответил не Bot API, а прокси или балансировщик перед ним.
+    if (response.ok) return { kind: 'network' }
     return { kind: 'error', code: response.status, description: '' }
   }
   if (body.ok) return { kind: 'ok', result: body.result as T }

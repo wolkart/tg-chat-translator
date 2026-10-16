@@ -21,13 +21,37 @@ export const ENV_TOKEN_REJECTED =
 
 type Check = { kind: 'ok'; username: string } | { kind: 'rejected' } | { kind: 'failed'; reason: string }
 
+/** Повторы при временном сбое: паузы по 3 секунды, всего до двух повторов. */
+const RETRY_PAUSE_MS = 3_000
+const RETRIES = 2
+
+/**
+ * Один мигнувший запрос не должен останавливать установку: человек уже вставил токен и
+ * ждёт. Повторяем только то, что проходит само (обрыв, 429, 5xx); 401/404 — токен
+ * действительно не тот, повтор ничего не изменит.
+ */
 async function checkToken(ctx: SetupContext, token: string): Promise<Check> {
   if (!TOKEN_PATTERN.test(token)) return { kind: 'rejected' }
-  const answer = await callBotApi<{ username: string }>(ctx.fetch, token, 'getMe')
-  if (answer.kind === 'ok') return { kind: 'ok', username: answer.result.username }
-  if (answer.kind === 'network') return { kind: 'failed', reason: TELEGRAM_UNREACHABLE }
-  if (isTokenRejected(answer.code)) return { kind: 'rejected' }
-  return { kind: 'failed', reason: `Telegram ответил ошибкой ${answer.code} — попробуйте через минуту.` }
+  let check: Check
+  for (let attempt = 0; ; attempt++) {
+    const answer = await callBotApi<{ username?: unknown }>(ctx.fetch, token, 'getMe')
+    let transient = false
+    if (answer.kind === 'ok') {
+      // Ответ без имени бота — обрыв по дороге, а не «найден»: имя пойдёт в сообщения и ссылки.
+      if (typeof answer.result?.username === 'string') return { kind: 'ok', username: answer.result.username }
+      check = { kind: 'failed', reason: TELEGRAM_UNREACHABLE }
+    } else if (answer.kind === 'network') {
+      transient = true
+      check = { kind: 'failed', reason: TELEGRAM_UNREACHABLE }
+    } else if (isTokenRejected(answer.code)) {
+      return { kind: 'rejected' }
+    } else {
+      transient = answer.code === 429 || answer.code >= 500
+      check = { kind: 'failed', reason: `Telegram ответил ошибкой ${answer.code} — попробуйте через минуту.` }
+    }
+    if (!transient || attempt >= RETRIES) return check
+    await ctx.sleep(RETRY_PAUSE_MS)
+  }
 }
 
 /**

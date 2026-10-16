@@ -371,7 +371,7 @@ install_linux() {
     ok "Docker уже стоит"
   else
     say "Ставлю Docker…"
-    curl -fsSL https://get.docker.com | $SUDO sh > /dev/null 2>&1 || die "Не удалось поставить Docker."
+    curl -fsSL --retry 2 --connect-timeout 20 --speed-limit 1024 --speed-time 60 https://get.docker.com | $SUDO sh > /dev/null 2>&1 || die "Не удалось поставить Docker."
     ok "Docker поставлен"
   fi
   # Свежий Docker слушается только root. Один раз решаем, каким вызовом работать дальше,

@@ -13,6 +13,8 @@
 
 $ErrorActionPreference = 'Stop'
 # Полоса прогресса в PowerShell 5.1 замедляет Invoke-WebRequest в разы.
+# У каждого Invoke-WebRequest -TimeoutSec 60: в 5.1 это ожидание ответа, а не всей загрузки, —
+# зависшее соединение оборвётся, а большой архив Node, который идёт медленно, — нет.
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
@@ -107,13 +109,13 @@ function Install-Node($Arch, $Dest) {
   $base = "$NodeDist/latest-v$NodeMajor.x"
   $work = New-TempDir
   try {
-    try { $sums = (Invoke-WebRequest -Uri "$base/SHASUMS256.txt" -UseBasicParsing).Content }
+    try { $sums = (Invoke-WebRequest -Uri "$base/SHASUMS256.txt" -UseBasicParsing -TimeoutSec 60).Content }
     catch { Fail "Не скачать Node с nodejs.org. $NetHint" }
     $found = Find-NodeFile "$sums" $Arch
     if (-not $found) { Fail "На nodejs.org нет Node $NodeMajor для этой системы ($Arch)." }
     $expected, $file = $found
     $zip = Join-Path $work $file
-    try { Invoke-WebRequest -Uri "$base/$file" -OutFile $zip -UseBasicParsing }
+    try { Invoke-WebRequest -Uri "$base/$file" -OutFile $zip -UseBasicParsing -TimeoutSec 60 }
     catch { Fail "Не скачать Node с nodejs.org. $NetHint" }
     $actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLower()
     if ($actual -ne $expected.ToLower()) { Fail 'Скачанный Node повреждён или подменён — запустите команду ещё раз.' }
@@ -140,7 +142,7 @@ function Get-Code($Into) {
     $zip = Join-Path $work 'code.zip'
     if ($Archive) { Copy-Item -LiteralPath $Archive -Destination $zip }
     else {
-      try { Invoke-WebRequest -Uri "https://codeload.github.com/$Repo/zip/refs/heads/$Branch" -OutFile $zip -UseBasicParsing }
+      try { Invoke-WebRequest -Uri "https://codeload.github.com/$Repo/zip/refs/heads/$Branch" -OutFile $zip -UseBasicParsing -TimeoutSec 60 }
       catch { Fail "Не скачать код с GitHub. $NetHint" }
     }
     $unpack = Join-Path $work 'unpack'
