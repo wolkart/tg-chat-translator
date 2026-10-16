@@ -56,7 +56,8 @@ export function placeName(platform: NodeJS.Platform = process.platform, host: st
 export function conflictText(place: string): string {
   return (
     `Бот остановился на ${place}: этот же бот запущен ещё в одном месте. ` +
-    'Работать должна одна копия — лишнюю удалите командой из README.'
+    'Работать должна одна копия. Нужна эта — удалите другую командой из README и запустите здесь ' +
+    'команду установки ещё раз: бот проснётся. Нужна другая — удалите эту.'
   )
 }
 

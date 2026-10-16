@@ -6,6 +6,7 @@ export const WAIT_LIMIT_MS = 3 * 60_000
 export const POLL_EVERY_MS = 2_000
 
 const YES = /^(да|д|yes|y)$/i
+const NO = /^(нет|н|no|n)$/i
 
 /** Ровно то из апдейта, что нужно установщику. */
 export type Update = {
@@ -78,7 +79,15 @@ export const ownerStep: SetupStep = {
       if (answer.kind === 'ok') {
         const candidate = findStart(answer.result, rejected)
         if (candidate) {
-          if (YES.test(await ctx.io.ask(`Это вы: ${label(candidate)}? (да/нет): `))) {
+          // Лишний Enter или опечатка — не «нет»: отвергнутого человека больше не предлагаем,
+          // и случайный Enter не должен выбросить настоящего владельца. Спрашиваем заново.
+          let yes: boolean | null = null
+          while (yes === null) {
+            const reply = (await ctx.io.ask(`Это вы: ${label(candidate)}? (да/нет): `)).trim()
+            if (YES.test(reply)) yes = true
+            else if (NO.test(reply)) yes = false
+          }
+          if (yes) {
             ctx.answers.ownerId = candidate.id
             ctx.answers.ownerChanged = true
             ctx.io.say('✓ Владелец найден')

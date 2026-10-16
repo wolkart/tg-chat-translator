@@ -74,6 +74,35 @@ test('чужой /start и ответ «нет» — его больше не п
   )
 })
 
+test('спека: лишний Enter вместо ответа — тот же вопрос ещё раз, человек не отвергается', async () => {
+  const { io, output } = fakeIo({ answers: ['', 'да'] })
+  const { fetchImpl } = telegramWith([ownerOnly])
+  const ctx = context(io, fetchImpl)
+  assert.deepEqual(await ownerStep.run(ctx), { ok: true })
+  assert.equal(ctx.answers.ownerId, OWNER_ID)
+  assert.deepEqual(
+    output.filter((line) => line.startsWith('Это вы')),
+    ['Это вы: Owner Test (@owner_test)? (да/нет): ', 'Это вы: Owner Test (@owner_test)? (да/нет): '],
+  )
+  assert.equal(output.some((line) => line.includes('Хорошо, жду дальше')), false)
+})
+
+test('непонятный ответ — повторный вопрос про того же, «нет» отвергает, дальше следующий', async () => {
+  const { io, output } = fakeIo({ answers: ['может быть', 'нет', 'да'] })
+  const { fetchImpl } = telegramWith([SAMPLE])
+  const ctx = context(io, fetchImpl)
+  assert.deepEqual(await ownerStep.run(ctx), { ok: true })
+  assert.equal(ctx.answers.ownerId, OWNER_ID)
+  assert.deepEqual(
+    output.filter((line) => line.startsWith('Это вы')),
+    [
+      'Это вы: Stranger Test (@stranger_test)? (да/нет): ',
+      'Это вы: Stranger Test (@stranger_test)? (да/нет): ',
+      'Это вы: Owner Test (@owner_test)? (да/нет): ',
+    ],
+  )
+})
+
 test('спека: никто не написал за 3 минуты — id числом, не число — вопрос снова', async () => {
   const { io, output } = fakeIo({ answers: ['мой id', '123456789'] })
   const { fetchImpl, calls } = telegramWith([EMPTY])

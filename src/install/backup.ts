@@ -8,7 +8,9 @@ import { DatabaseSync } from 'node:sqlite'
  */
 export function backupDatabase(dbPath: string, outPath: string): void {
   if (existsSync(outPath)) throw new Error(`Файл ${outPath} уже есть — копию поверх не пишу`)
-  const db = new DatabaseSync(dbPath, { readOnly: true })
+  // timeout: у соединения только для чтения ожидания блокировки нет — если бот в этот миг
+  // пишет, копия упала бы, а не подождала.
+  const db = new DatabaseSync(dbPath, { readOnly: true, timeout: 5000 })
   try {
     db.prepare('VACUUM INTO ?').run(outPath)
   } finally {
