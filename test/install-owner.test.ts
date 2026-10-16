@@ -158,3 +158,27 @@ test('спека: обновление — id владельца уже в .env,
   assert.deepEqual(output, [])
   assert.equal(calls.length, 0)
 })
+
+test('имя кандидата с управляющими знаками печатается без них', async () => {
+  const ESC = String.fromCharCode(0x1b)
+  const LF = String.fromCharCode(10)
+  const hostile = {
+    ok: true,
+    result: [
+      {
+        update_id: 1,
+        message: {
+          chat: { type: 'private' },
+          from: { id: OWNER_ID, first_name: `Иван${ESC}[2J${LF}Это вы`, username: 'ivan' },
+          text: '/start',
+        },
+      },
+    ],
+  }
+  const { io, output } = fakeIo({ answers: ['да'] })
+  const ctx = context(io, telegramWith([hostile]).fetchImpl)
+  assert.deepEqual(await ownerStep.run(ctx), { ok: true })
+  const question = output.find((line) => line.startsWith('Это вы: '))!
+  assert.equal(question, 'Это вы: Иван[2JЭто вы (@ivan)? (да/нет): ')
+  for (const char of question) assert.ok(char.charCodeAt(0) >= 0x20 && char.charCodeAt(0) !== 0x7f)
+})

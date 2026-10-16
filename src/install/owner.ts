@@ -35,8 +35,24 @@ export function findStart(updates: readonly Update[], rejected: ReadonlySet<numb
   return null
 }
 
+/**
+ * Имя пишет любой, кто отправил боту /start, а печатается оно в терминал владельца: управляющий
+ * знак в имени (ESC[2J — очистка экрана, перевод строки) подменил бы вопрос на экране. Знаки
+ * с кодом меньше 0x20 и 0x7f убираем по коду, без escape-последовательностей в тексте.
+ */
+function printable(text: string): string {
+  let out = ''
+  for (const char of text) {
+    const code = char.charCodeAt(0)
+    if (code >= 0x20 && code !== 0x7f) out += char
+  }
+  return out
+}
+
 function label(candidate: Candidate): string {
-  return candidate.username ? `${candidate.name} (@${candidate.username})` : candidate.name
+  const name = printable(candidate.name)
+  const username = candidate.username ? printable(candidate.username) : ''
+  return username ? `${name} (@${username})` : name
 }
 
 /**
