@@ -43,16 +43,25 @@ is_ours() {
   [ ! -e "$1/.git" ] && [ -f "$1/src/main.ts" ] && [ -f "$1/package.json" ] && grep -q '"name": "tg-chat-translator"' "$1/package.json"
 }
 
+# Имена всего, что лежит в папке, включая скрытое и битые ссылки. Обход в одном месте: шаблон
+# глоба не копируется по циклам и не расходится при правке. if, а не &&, — чтобы под set -e
+# последний статус функции не стал 1.
+list_entries() {
+  local entry
+  for entry in "$1"/* "$1"/.[!.]* "$1"/..?*; do
+    if [ -e "$entry" ] || [ -L "$entry" ]; then basename "$entry"; fi
+  done
+}
+
 # Папка, где лежит только то, что переживает обновление (или ничего), — тоже наша:
 # прошлая установка могла оборваться, успев скачать один Node. .DS_Store кладёт Finder, стоит
 # открыть папку.
 only_keep() {
-  local entry
-  for entry in "$1"/* "$1"/.[!.]* "$1"/..?*; do
-    [ -e "$entry" ] || [ -L "$entry" ] || continue
-    [ "$(basename "$entry")" = ".DS_Store" ] && continue
-    case " $KEEP " in *" $(basename "$entry") "*) ;; *) return 1 ;; esac
-  done
+  local name
+  while IFS= read -r name; do
+    [ "$name" = ".DS_Store" ] && continue
+    case " $KEEP " in *" $name "*) ;; *) return 1 ;; esac
+  done < <(list_entries "$1")
   return 0
 }
 

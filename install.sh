@@ -35,7 +35,6 @@ NET_HINT="Если вы в России — включите VPN на весь �
 
 say()  { printf '\n\033[1m%s\033[0m\n' "$*"; }
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
-warn() { printf '  \033[33m!\033[0m %s\n' "$*"; }
 die()  { printf '\n\033[31m✗ %s\033[0m\n\n' "$*" >&2; exit 1; }
 
 fetch_to() { curl -fsSL --retry 2 --connect-timeout 20 --speed-limit 1024 --speed-time 60 -o "$2" "$1"; }
@@ -59,16 +58,25 @@ is_ours() {
   [ ! -e "$1/.git" ] && [ -f "$1/src/main.ts" ] && [ -f "$1/package.json" ] && grep -q '"name": "tg-chat-translator"' "$1/package.json"
 }
 
+# Имена всего, что лежит в папке, включая скрытое и битые ссылки. Обход в одном месте: шаблон
+# глоба не копируется по циклам и не расходится при правке. if, а не &&, — чтобы под set -e
+# последний статус функции не стал 1.
+list_entries() {
+  local entry
+  for entry in "$1"/* "$1"/.[!.]* "$1"/..?*; do
+    if [ -e "$entry" ] || [ -L "$entry" ]; then basename "$entry"; fi
+  done
+}
+
 # Папка, где лежит только то, что переживает обновление (или ничего), — тоже наша:
 # прошлая установка могла оборваться, успев скачать один Node. .DS_Store кладёт Finder, стоит
 # открыть папку.
 only_keep() {
-  local entry
-  for entry in "$1"/* "$1"/.[!.]* "$1"/..?*; do
-    [ -e "$entry" ] || [ -L "$entry" ] || continue
-    [ "$(basename "$entry")" = ".DS_Store" ] && continue
-    case " $KEEP " in *" $(basename "$entry") "*) ;; *) return 1 ;; esac
-  done
+  local name
+  while IFS= read -r name; do
+    [ "$name" = ".DS_Store" ] && continue
+    case " $KEEP " in *" $name "*) ;; *) return 1 ;; esac
+  done < <(list_entries "$1")
   return 0
 }
 
@@ -98,29 +106,36 @@ download_code() {
 # файлы, удалённые в новой версии, не остаются висеть. rm -rf по переменной — самое
 # дорогое место для ошибки, поэтому папку проверяем ещё раз прямо здесь.
 replace_code() {
-  local new="$1" dir="$2" entry name
+  local new="$1" dir="$2" name
   if [ -e "$dir" ] && ! { is_ours "$dir" || only_keep "$dir"; }; then
     die "Папка $dir уже занята чем-то другим — не трогаю её."
   fi
   mkdir -p "$dir"
-  for entry in "$dir"/* "$dir"/.[!.]* "$dir"/..?*; do
-    [ -e "$entry" ] || [ -L "$entry" ] || continue
-    name=$(basename "$entry")
+  while IFS= read -r name; do
     case " $KEEP " in *" $name "*) continue ;; esac
-    rm -rf "$entry"
-  done
-  for entry in "$new"/* "$new"/.[!.]* "$new"/..?*; do
-    [ -e "$entry" ] || [ -L "$entry" ] || continue
-    name=$(basename "$entry")
-    case " $KEEP " in *" $name "*) rm -rf "$entry"; continue ;; esac
-    mv "$entry" "$dir/"
-  done
+    rm -rf "${dir:?}/$name"
+  done < <(list_entries "$dir")
+  while IFS= read -r name; do
+    case " $KEEP " in *" $name "*) rm -rf "${new:?}/$name"; continue ;; esac
+    mv "$new/$name" "$dir/"
+  done < <(list_entries "$new")
   rmdir "$new"
 }
 
 # Строка «@бот запущен» — её пишет main.ts, когда поднялся. Другие строки со словом
 # «запущен» («этот же бот запущен ещё в одном месте») под шаблон не подходят.
 STARTED='@[A-Za-z0-9_]+ запущен$'
+
+# Ждём строку «запущен» в выводе команды до 30 секунд. grep без -q: он закрыл бы канал раньше
+# времени, и под pipefail команда слева падала бы по SIGPIPE.
+wait_started() {
+  for _ in $(seq 1 30); do
+    if "$@" 2> /dev/null | grep -E "$STARTED" > /dev/null; then return 0; fi
+    sleep 1
+  done
+  "$@" 2> /dev/null | show_log_tail
+  die "Бот не запустился за 30 секунд — выше последние строки его журнала."
+}
 
 # Последние строки журнала — без токена, даже если он туда как-то попал.
 show_log_tail() {
@@ -264,18 +279,14 @@ start_launchd() {
     die "macOS не включила автозапуск бота. Перезагрузите Mac и запустите команду ещё раз."
 }
 
-wait_started_mac() {
-  local log="$1" from="$2"
-  for _ in $(seq 1 30); do
-    if [ -f "$log" ] && tail -c +"$((from + 1))" "$log" | grep -E "$STARTED" > /dev/null; then return 0; fi
-    sleep 1
-  done
-  [ -f "$log" ] && tail -c +"$((from + 1))" "$log" | show_log_tail
-  die "Бот не запустился за 30 секунд — выше последние строки его журнала."
+# Журнал launchd общий и растёт между запусками: смотрим только то, что дописано после
+# смещения, иначе «запущен» от прошлого раза сойдёт за сегодняшний.
+read_new_log() {
+  if [ -f "$1" ]; then tail -c +"$(($2 + 1))" "$1"; fi
 }
 
 install_mac() {
-  local version arch work log from first_time=1
+  local version arch TMP log from first_time=1
   version=$(sw_vers -productVersion)
   macos_ok "$version" ||
     die "Нужна macOS 13.5 или новее — на этой ($version) бот не запустится. Поставьте его на сервер: инструкция в README."
@@ -288,20 +299,21 @@ install_mac() {
   export PATH="$DIR/node/bin:$PATH"
 
   say "Скачиваю бота…"
-  work=$(mktemp -d "$HOME/.tg-chat-translator-new.XXXXXX")
-  # Очистка при любом выходе, в том числе через die: иначе на диске остаются скрытая папка в
-  # домашней и лог сборки. Пути подставляются сейчас: work локальная, а EXIT сработает уже вне
-  # функции, где под set -u ссылка на неё упала бы. %q — на случай апострофа в имени папки.
-  trap "rm -rf $(printf '%q' "$work") $(printf '%q' "$work.tar.gz") $(printf '%q' "$work.npm.log")" EXIT
-  download_code "$work"
+  # Корень — в домашней папке, а не в /tmp: код потом переезжает в $DIR через mv, а он быстр
+  # и цел только на том же томе.
+  TMP=$(mktemp -d "$HOME/.tg-chat-translator-new.XXXXXX")
+  # Одна очистка при любом выходе, в том числе через die: иначе на диске остаются скрытая папка
+  # в домашней, архив и лог сборки. Путь подставляется сейчас: TMP локальная, а EXIT сработает
+  # уже вне функции, где под set -u ссылка на неё упала бы. %q — на случай апострофа в имени.
+  trap "rm -rf $(printf '%q' "$TMP")" EXIT
+  mkdir "$TMP/code"
+  download_code "$TMP/code"
   # Зависимости ставим во временную папку: не поставились — старая версия работает дальше.
-  (cd "$work" && npm ci --omit=dev --no-audit --no-fund --loglevel=error) > "$work.npm.log" 2>&1 || {
-    tail -n 20 "$work.npm.log"
-    rm -rf "$work" "$work.npm.log"
+  (cd "$TMP/code" && npm ci --omit=dev --no-audit --no-fund --loglevel=error) > "$TMP/npm.log" 2>&1 || {
+    tail -n 20 "$TMP/npm.log"
     die "Не поставились зависимости бота. $NET_HINT"
   }
-  rm -f "$work.npm.log"
-  replace_code "$work" "$DIR"
+  replace_code "$TMP/code" "$DIR"
   mkdir -p "$DIR/data"
   ok "Бот — в папке $DIR"
 
@@ -314,7 +326,7 @@ install_mac() {
   from=0
   [ -f "$log" ] && from=$(($(wc -c < "$log")))
   start_launchd
-  wait_started_mac "$log" "$from"
+  wait_started read_new_log "$log" "$from"
   finish "$first_time" "$log"
   if [ "$first_time" = 1 ]; then
     echo "Бот работает, пока Mac не спит. Чтобы переводы шли круглосуточно, поставьте его на сервер — README."
@@ -341,17 +353,8 @@ install_pkg() {
   ok "$pkg поставлен"
 }
 
-wait_started_docker() {
-  for _ in $(seq 1 30); do
-    $DOCKER compose logs --no-log-prefix translator 2> /dev/null | grep -E "$STARTED" > /dev/null && return 0
-    sleep 1
-  done
-  $DOCKER compose logs --no-log-prefix translator 2> /dev/null | show_log_tail
-  die "Бот не запустился за 30 секунд — выше последние строки его журнала."
-}
-
 install_linux() {
-  local work build_log first_time=1
+  local TMP first_time=1
   # Чужую папку отвергаем до sudo и установки Docker: отказ после правок системы — поздний.
   check_dir
   [ -f "$DIR/.env" ] && grep -qE '^OWNER_ID=[0-9]+' "$DIR/.env" && first_time=0
@@ -384,10 +387,13 @@ install_linux() {
   $DOCKER compose version > /dev/null 2>&1 || die "Нет docker compose. Обновите Docker до свежей версии."
 
   say "Скачиваю бота…"
-  work=$(mktemp -d)
-  trap "rm -rf $(printf '%q' "$work") $(printf '%q' "$work.tar.gz")" EXIT
-  download_code "$work"
-  replace_code "$work" "$DIR"
+  TMP=$(mktemp -d)
+  # Путь подставляется сейчас: TMP локальная, а EXIT сработает вне функции. Лог сборки лежит
+  # там же — одна очистка на всё.
+  trap "rm -rf $(printf '%q' "$TMP")" EXIT
+  mkdir "$TMP/code"
+  download_code "$TMP/code"
+  replace_code "$TMP/code" "$DIR"
   ok "Бот — в папке $DIR"
   cd "$DIR"
 
@@ -396,13 +402,10 @@ install_linux() {
   $DOCKER pull "node:$NODE_MAJOR-slim" > /dev/null 2>&1 ||
     die "Docker Hub недоступен — для серверов в России он закрыт. Возьмите сервер за рубежом."
   say "Собираю бота…"
-  build_log=$(mktemp)
-  trap "rm -rf $(printf '%q' "$work") $(printf '%q' "$work.tar.gz") $(printf '%q' "$build_log")" EXIT
-  $DOCKER compose build > "$build_log" 2>&1 || {
-    tail -n 30 "$build_log"
+  $DOCKER compose build > "$TMP/build.log" 2>&1 || {
+    tail -n 30 "$TMP/build.log"
     die "Сборка не удалась — выше последние строки."
   }
-  rm -f "$build_log"
 
   # Пустой .env — до вопросов: без него Compose не запустит даже одноразовый контейнер.
   [ -f .env ] || { touch .env; chmod 600 .env; }
@@ -414,7 +417,7 @@ install_linux() {
   say "Запускаю…"
   $DOCKER compose up -d --force-recreate > /dev/null 2>&1 ||
     die "Контейнер не поднялся. Журнал: cd $DIR && $DOCKER compose logs"
-  wait_started_docker
+  wait_started $DOCKER compose logs --no-log-prefix translator
   finish "$first_time" "cd $DIR && $DOCKER compose logs -f"
 }
 
