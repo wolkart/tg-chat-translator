@@ -35,7 +35,7 @@ ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
 warn() { printf '  \033[33m!\033[0m %s\n' "$*"; }
 die()  { printf '\n\033[31m✗ %s\033[0m\n\n' "$*" >&2; exit 1; }
 
-fetch_to() { curl -fsSL --retry 2 --connect-timeout 20 -o "$2" "$1"; }
+fetch_to() { curl -fsSL --retry 2 --connect-timeout 20 --speed-limit 1024 --speed-time 60 -o "$2" "$1"; }
 
 sha256() {
   if command -v shasum > /dev/null 2>&1; then shasum -a 256 "$1" | awk '{ print $1 }'
@@ -51,15 +51,19 @@ tty_input() {
 # --- Папка бота ---
 
 is_ours() {
-  [ -f "$1/src/main.ts" ] && [ -f "$1/package.json" ] && grep -q '"name": "tg-chat-translator"' "$1/package.json"
+  # Папка с .git — клон для разработки (cd ~ && git clone даёт ровно такой путь): обновление
+  # снесло бы историю и незакоммиченное.
+  [ ! -e "$1/.git" ] && [ -f "$1/src/main.ts" ] && [ -f "$1/package.json" ] && grep -q '"name": "tg-chat-translator"' "$1/package.json"
 }
 
 # Папка, где лежит только то, что переживает обновление (или ничего), — тоже наша:
-# прошлая установка могла оборваться, успев скачать один Node.
+# прошлая установка могла оборваться, успев скачать один Node. .DS_Store кладёт Finder, стоит
+# открыть папку.
 only_keep() {
   local entry
   for entry in "$1"/* "$1"/.[!.]* "$1"/..?*; do
     [ -e "$entry" ] || [ -L "$entry" ] || continue
+    [ "$(basename "$entry")" = ".DS_Store" ] && continue
     case " $KEEP " in *" $(basename "$entry") "*) ;; *) return 1 ;; esac
   done
   return 0
@@ -246,8 +250,9 @@ start_launchd() {
   if launchctl print "$domain/$LABEL" > /dev/null 2>&1; then
     launchctl bootout "$domain/$LABEL" 2> /dev/null || true
     # bootout возвращается раньше, чем задание снято, и bootstrap сразу за ним иногда
-    # падает с «Input/output error» — ждём, пока задание действительно уйдёт.
-    for _ in 1 2 3 4 5 6 7 8 9 10; do
+    # падает с «Input/output error» — ждём, пока задание действительно уйдёт. До 25 секунд:
+    # launchd даёт заданию до 20 на выход, а бот дожидается идущего перевода.
+    for _ in $(seq 1 50); do
       launchctl print "$domain/$LABEL" > /dev/null 2>&1 || break
       sleep 0.5
     done
@@ -259,7 +264,7 @@ start_launchd() {
 wait_started_mac() {
   local log="$1" from="$2"
   for _ in $(seq 1 30); do
-    if [ -f "$log" ] && tail -c +"$((from + 1))" "$log" | grep -qE "$STARTED"; then return 0; fi
+    if [ -f "$log" ] && tail -c +"$((from + 1))" "$log" | grep -E "$STARTED" > /dev/null; then return 0; fi
     sleep 1
   done
   [ -f "$log" ] && tail -c +"$((from + 1))" "$log" | show_log_tail
@@ -331,7 +336,7 @@ install_pkg() {
 
 wait_started_docker() {
   for _ in $(seq 1 30); do
-    $DOCKER compose logs --no-log-prefix translator 2> /dev/null | grep -qE "$STARTED" && return 0
+    $DOCKER compose logs --no-log-prefix translator 2> /dev/null | grep -E "$STARTED" > /dev/null && return 0
     sleep 1
   done
   $DOCKER compose logs --no-log-prefix translator 2> /dev/null | show_log_tail

@@ -121,6 +121,38 @@ test('check_dir: нет папки, пустая, наша — можно; чу�
   assert.equal(bash('install.sh', 'check_dir', [], { DIR: foreign }).status, 1)
 })
 
+test('check_dir: клон для разработки (с .git) — не наша папка, файлы целы', { skip }, () => {
+  const dir = installedBot()
+  write(join(dir, '.git/HEAD'), 'ref: refs/heads/main')
+  assert.equal(bash('install.sh', 'check_dir', [], { DIR: dir }).status, 1)
+  assert.ok(existsSync(join(dir, '.git/HEAD')))
+  assert.ok(existsSync(join(dir, 'src/main.ts')))
+})
+
+test('check_dir: папка только с node/ и .DS_Store от Finder — можно', { skip }, () => {
+  const dir = tempDir()
+  write(join(dir, 'node/bin/node'), 'свой node')
+  write(join(dir, '.DS_Store'), '')
+  assert.equal(bash('install.sh', 'check_dir', [], { DIR: dir }).status, 0)
+})
+
+test('show_log_tail: токен из .env в журнале заменяется на ***', { skip }, () => {
+  const dir = tempDir()
+  write(join(dir, '.env'), 'BOT_TOKEN=123456:SECRET-token_abc\nOWNER_ID=1\n')
+  const run = spawnSync(
+    'bash',
+    ['-c', `INSTALL_SH_LIB=1 source "${join(ROOT, 'install.sh')}"; show_log_tail`],
+    {
+      encoding: 'utf8',
+      env: { ...process.env, DIR: dir },
+      input: 'ошибка: https://api.telegram.org/bot123456:SECRET-token_abc/getMe\nещё строка\n',
+    },
+  )
+  assert.equal(run.status, 0, run.stderr)
+  assert.match(run.stdout, /bot\*\*\*\/getMe/)
+  assert.doesNotMatch(run.stdout, /SECRET-token_abc/)
+})
+
 test('спека: macOS 13.5 и новее — да, старше — нет', { skip }, () => {
   for (const version of ['13.5', '13.5.2', '13.6', '14.0', '15.7.1', '26.0', '27']) {
     assert.equal(bash('install.sh', 'macos_ok', [version]).status, 0, version)

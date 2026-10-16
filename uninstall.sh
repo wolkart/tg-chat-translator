@@ -35,7 +35,8 @@ ask() {
 }
 
 is_ours() {
-  [ -f "$1/src/main.ts" ] && [ -f "$1/package.json" ] && grep -q '"name": "tg-chat-translator"' "$1/package.json"
+  # Папка с .git — клон для разработки, а не установка: её удалять нельзя.
+  [ ! -e "$1/.git" ] && [ -f "$1/src/main.ts" ] && [ -f "$1/package.json" ] && grep -q '"name": "tg-chat-translator"' "$1/package.json"
 }
 
 backup_path() {
