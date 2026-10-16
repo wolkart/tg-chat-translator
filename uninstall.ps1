@@ -66,15 +66,17 @@ function Get-BotProcessPattern($Target) {
 # — первым, иначе он поднимет node снова.
 function Stop-Bot($Target) {
   $pattern = Get-BotProcessPattern $Target
-  foreach ($name in @('powershell.exe', 'node.exe')) {
-    Get-CimInstance Win32_Process -Filter "Name='$name'" |
-      Where-Object { $_.CommandLine -and $_.CommandLine -match $pattern } |
-      ForEach-Object {
-        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
-        # Stop-Process возвращается раньше, чем Windows отпустит файлы node.exe: без ожидания
-        # удаление папки Node сразу за остановкой падало бы.
-        Wait-Process -Id $_.ProcessId -Timeout 10 -ErrorAction SilentlyContinue
-      }
+  $found = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='node.exe'" |
+    Where-Object { $_.CommandLine -and $_.CommandLine -match $pattern })
+  $supervisors = @($found | Where-Object { $_.Name -eq 'powershell.exe' })
+  $bots = @($found | Where-Object { $_.Name -ne 'powershell.exe' })
+  foreach ($process in $supervisors + $bots) {
+    Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+  }
+  # Stop-Process возвращается раньше, чем Windows отпустит файлы node.exe: без ожидания
+  # удаление папки Node сразу за остановкой падало бы. Ждём всех разом — один вызов.
+  if ($found.Count -gt 0) {
+    Wait-Process -Id @($found | ForEach-Object { $_.ProcessId }) -Timeout 10 -ErrorAction SilentlyContinue
   }
 }
 

@@ -32,7 +32,6 @@ $Started = '@[A-Za-z0-9_]+ запущен$'
 
 function Say($text) { Write-Host ''; Write-Host $text -ForegroundColor White }
 function Ok($text) { Write-Host "  ✓ $text" -ForegroundColor Green }
-function Warn($text) { Write-Host "  ! $text" -ForegroundColor Yellow }
 
 # Не exit: скрипт исполняется через iex прямо в окне человека, и exit закрыл бы окно
 # вместе с текстом ошибки. Бросаем исключение, его ловит последняя строка файла.
@@ -178,20 +177,28 @@ function Get-BotProcessPattern($Target) {
 # процессы node и PowerShell так не задеть. Надзиратель — первым, иначе он поднимет node.
 function Stop-Bot($Target) {
   $pattern = Get-BotProcessPattern $Target
-  foreach ($name in @('powershell.exe', 'node.exe')) {
-    Get-CimInstance Win32_Process -Filter "Name='$name'" |
-      Where-Object { $_.CommandLine -and $_.CommandLine -match $pattern } |
-      ForEach-Object {
-        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
-        # Stop-Process возвращается раньше, чем Windows отпустит файлы node.exe: без ожидания
-        # удаление папки Node сразу за остановкой падало бы.
-        Wait-Process -Id $_.ProcessId -Timeout 10 -ErrorAction SilentlyContinue
-      }
+  $found = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='node.exe'" |
+    Where-Object { $_.CommandLine -and $_.CommandLine -match $pattern })
+  $supervisors = @($found | Where-Object { $_.Name -eq 'powershell.exe' })
+  $bots = @($found | Where-Object { $_.Name -ne 'powershell.exe' })
+  foreach ($process in $supervisors + $bots) {
+    Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+  }
+  # Stop-Process возвращается раньше, чем Windows отпустит файлы node.exe: без ожидания
+  # удаление папки Node сразу за остановкой падало бы. Ждём всех разом — один вызов.
+  if ($found.Count -gt 0) {
+    Wait-Process -Id @($found | ForEach-Object { $_.ProcessId }) -Timeout 10 -ErrorAction SilentlyContinue
   }
 }
 
+# Аргументы запуска надзирателя — в одном месте: запись автозагрузки и немедленный запуск
+# обязаны совпадать, иначе после перезагрузки бот стартовал бы иначе, чем сейчас.
+function Get-RunArgs($Target) {
+  '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$(Join-Path $Target 'run.ps1')`""
+}
+
 function Get-RunCommand($Target) {
-  "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$(Join-Path $Target 'run.ps1')`""
+  'powershell.exe ' + ((Get-RunArgs $Target) -join ' ')
 }
 
 # Автозапуск — запись Run в разделе пользователя: прав администратора не нужно, видна в
@@ -206,10 +213,7 @@ function Register-Autostart($Target) {
 }
 
 function Start-Bot($Target) {
-  $runner = Join-Path $Target 'run.ps1'
-  Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden -ArgumentList @(
-    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$runner`""
-  ) | Out-Null
+  Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden -ArgumentList (Get-RunArgs $Target) | Out-Null
 }
 
 function Get-LogLines($Log) {

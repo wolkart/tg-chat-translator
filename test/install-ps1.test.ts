@@ -207,7 +207,7 @@ test('uninstall.ps1: удалять нечего — «Ничего не най�
 
 test('Stop-Bot ждёт выхода процессов, а бот в install.ps1 останавливается после вопросов setup.ts', () => {
   for (const script of SETUP_SCRIPTS) {
-    assert.match(codeOnly(readFileSync(join(ROOT, script), 'utf8')), /Wait-Process -Id \$_\.ProcessId -Timeout 10/, script)
+    assert.match(codeOnly(readFileSync(join(ROOT, script), 'utf8')), /Wait-Process -Id @\(\$found \| ForEach-Object \{ \$_\.ProcessId \}\) -Timeout 10/, script)
   }
   const code = codeOnly(readFileSync(join(ROOT, 'install.ps1'), 'utf8'))
   const afterAnswers = code.indexOf("'src/install/setup.ts'")
