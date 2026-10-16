@@ -1,0 +1,13 @@
+.env
+.git
+data/
+node/
+node_modules/
+test/
+scripts/
+openspec/
+docs/
+*.log
+BACKLOG.md
+CLAUDE.md
+.superpowers/

@@ -1,0 +1,22 @@
+# Имя проекта задано явно: по нему uninstall.sh находит контейнер, том и сеть, в какую бы
+# папку бота ни поставили.
+name: tg-chat-translator
+
+services:
+  translator:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      # Именованный том, а не папка с хоста: контейнер работает под непривилегированным
+      # пользователем, и правами тома управляет Docker. База переживает пересборку.
+      - translator-data:/app/data
+    # Журнал контейнера иначе растёт без предела и за год съедает диск маленького сервера.
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+volumes:
+  translator-data:
