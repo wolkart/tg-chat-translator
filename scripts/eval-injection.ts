@@ -1,6 +1,6 @@
 /**
- * Замер стойкости перевода к подмене (tasks.md 12.1). Не тест: ходит в модель с ключом
- * из .env и тратит деньги — около $0.05 за прогон у gpt-4.1-mini.
+ * Замер стойкости перевода к подмене (tasks.md 12.1). Не тест: ходит в модель с ключом,
+ * как бот, — из .env или вставленным в панели, — и тратит деньги: около $0.05 за прогон.
  *
  * Запуск: node scripts/eval-injection.ts [--runs=3] [--provider=openrouter] [--model=<id>] [--only=1,2,19]
  * --model принимает любой id провайдера, не только из таблицы: так сравниваются кандидаты.
@@ -14,6 +14,7 @@ import { getProfile } from '../src/lang/profiles.ts'
 import { reviewTranslation } from '../src/translate/check.ts'
 import { createTranslator } from '../src/translate/llm.ts'
 import { resolveModel } from '../src/translate/providers.ts'
+import { openStore } from '../src/store.ts'
 import type { Review } from '../src/types.ts'
 import { CASES, scoreRun, type EvalCase, type Outcome } from './injection-cases.ts'
 
@@ -33,7 +34,14 @@ const { env } = loaded
 // Ошибка провайдера иногда цитирует запрос — ключ в консоль попасть не должен.
 const scrub = createScrubber(env.secrets)
 
-const resolved = resolveModel({ provider: args.get('provider') }, env)
+// Ключ — как у бота: из .env, а если там нет — вставленный в панели. Иначе замер требовал
+// бы держать ключ в .env, а оттуда он запер бы кнопку «Вставить ключ».
+const store = openStore(env.dbPath)
+const panelKeys = store.panelKeys(env.ownerId)
+store.close()
+for (const key of Object.values(panelKeys)) scrub.add(key)
+
+const resolved = resolveModel({ provider: args.get('provider') }, env, panelKeys)
 if (!resolved.ok) {
   console.error(resolved.problem)
   process.exit(1)
@@ -44,12 +52,14 @@ const only = args.get('only')?.split(',')
 const owner = getProfile('ru')!
 const translate = createTranslator({ baseUrl: resolved.baseUrl, apiKey: resolved.apiKey, model, provider: resolved.provider })
 
-type Run = { translation: string; review: Review; outcome: Outcome } | { error: string }
+type Run = { translation: string; review: Review; outcome: Outcome; ms: number } | { error: string }
 
 async function runOnce(evalCase: EvalCase): Promise<Run> {
   try {
     const target = getProfile(evalCase.target)!
+    const started = performance.now()
     const translation = await translate({ target, history: evalCase.history, text: evalCase.text })
+    const ms = Math.round(performance.now() - started)
     const review = reviewTranslation({
       direction: evalCase.direction,
       original: evalCase.text,
@@ -57,7 +67,7 @@ async function runOnce(evalCase: EvalCase): Promise<Run> {
       owner,
       target,
     })
-    return { translation, review, outcome: scoreRun(evalCase, translation, review) }
+    return { translation, review, outcome: scoreRun(evalCase, translation, review), ms }
   } catch (error) {
     return { error: scrub(error instanceof Error ? error.message : String(error)) }
   }
@@ -96,6 +106,15 @@ for (const kind of ['attack', 'control', 'normal'] as const) {
   )
   console.log(`${kind.padEnd(8)} из ${total}: ${parts.join('  ')}`)
 }
+
+// Скорость — медиана по обычным сообщениям: атаки длиннее и для таблицы «как модели
+// справляются» не показательны.
+const times = results
+  .filter((result) => result.evalCase.kind === 'normal')
+  .flatMap((result) => result.runs)
+  .flatMap((run) => ('ms' in run ? [run.ms] : []))
+  .sort((a, b) => a - b)
+if (times.length > 0) console.log(`медиана ответа на обычные сообщения: ${(times[Math.floor(times.length / 2)]! / 1000).toFixed(1)} с`)
 
 mkdirSync('data/eval', { recursive: true })
 const file = `data/eval/${new Date().toISOString().replace(/[:.]/g, '-')}.json`
