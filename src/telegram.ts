@@ -1,4 +1,4 @@
-import { GrammyError, InputFile, type Api } from 'grammy'
+import { GrammyError, HttpError, InputFile, type Api } from 'grammy'
 import type { BusinessConnection, InlineKeyboardButton } from 'grammy/types'
 import type { MediaKind } from './types.ts'
 
@@ -90,6 +90,22 @@ export class TelegramError extends Error {
  */
 export function isTokenRejected(code: number): boolean {
   return code === 401 || code === 404
+}
+
+/**
+ * Ошибка приходит в двух видах: от нашей обёртки (getMe при старте) и от grammY напрямую
+ * (bot.start бросает GrammyError, когда перестаёт опрашивать). Распознавание живёт здесь, а не
+ * в ядре, чтобы остальной код не зависел от библиотеки.
+ */
+export function telegramFailure(error: unknown): { code: number; description: string } | null {
+  if (error instanceof TelegramError) return { code: error.code, description: error.description }
+  if (error instanceof GrammyError) return { code: error.error_code, description: error.description }
+  return null
+}
+
+/** Запрос не дошёл до Telegram (нет сети, обрыв) — ответа с кодом нет вовсе. */
+export function isNetworkFailure(error: unknown): boolean {
+  return error instanceof HttpError
 }
 
 /** Человеческое описание любой ошибки — для пометок в теме и оповещений. */

@@ -1,7 +1,6 @@
 import { hostname } from 'node:os'
-import { GrammyError, HttpError } from 'grammy'
 import type { Alerts } from './alerts.ts'
-import { TelegramError, isTokenRejected, type BotInfo } from './telegram.ts'
+import { isNetworkFailure, isTokenRejected, telegramFailure, type BotInfo } from './telegram.ts'
 
 /**
  * Что делать процессу после ошибки Telegram:
@@ -19,14 +18,6 @@ export const TOKEN_REJECTED =
   'Telegram не принял токен бота — его отозвали или заменили в @BotFather. ' +
   'Запустите команду установки ещё раз: она спросит новый токен.'
 
-// Ошибка приходит в двух видах: от нашей обёртки (getMe при старте) и от grammY напрямую
-// (bot.start бросает GrammyError, когда перестаёт опрашивать).
-function telegramFailure(error: unknown): { code: number; description: string } | null {
-  if (error instanceof TelegramError) return { code: error.code, description: error.description }
-  if (error instanceof GrammyError) return { code: error.error_code, description: error.description }
-  return null
-}
-
 export function classifyStop(error: unknown): StopKind {
   const failure = telegramFailure(error)
   if (failure) {
@@ -37,7 +28,7 @@ export function classifyStop(error: unknown): StopKind {
     if (failure.code === 429 || failure.code >= 500) return 'retry'
     return 'crash'
   }
-  if (error instanceof HttpError) return 'retry'
+  if (isNetworkFailure(error)) return 'retry'
   return 'crash'
 }
 
