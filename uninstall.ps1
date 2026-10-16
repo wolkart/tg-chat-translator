@@ -40,8 +40,15 @@ function Get-BackupPath {
 }
 
 # Надзиратель — первым, иначе он поднимет node снова.
+
+# Helper function for Stop-Bot pattern: matches target folder path with trailing backslash to avoid
+# false matches on similarly named folders like tg-chat-translator-old.
+function Get-BotProcessPattern($Target) {
+  [regex]::Escape($Target.TrimEnd('\', '/') + '\')
+}
+
 function Stop-Bot($Target) {
-  $pattern = [regex]::Escape($Target.TrimEnd('\\', '\/') + '\\')
+  $pattern = Get-BotProcessPattern $Target
   foreach ($name in @('powershell.exe', 'node.exe')) {
     Get-CimInstance Win32_Process -Filter "Name='$name'" |
       Where-Object { $_.CommandLine -and $_.CommandLine -match $pattern } |

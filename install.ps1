@@ -161,8 +161,15 @@ function Update-Code($New, $Target) {
 
 # Надзиратель и бот находятся по пути к папке бота в командной строке процесса: чужие
 # процессы node и PowerShell так не задеть. Надзиратель — первым, иначе он поднимет node.
+
+# Helper function for Stop-Bot pattern: matches target folder path with trailing backslash to avoid
+# false matches on similarly named folders like tg-chat-translator-old.
+function Get-BotProcessPattern($Target) {
+  [regex]::Escape($Target.TrimEnd('\', '/') + '\')
+}
+
 function Stop-Bot($Target) {
-  $pattern = [regex]::Escape($Target.TrimEnd('\\', '\/') + '\\')
+  $pattern = Get-BotProcessPattern $Target
   foreach ($name in @('powershell.exe', 'node.exe')) {
     Get-CimInstance Win32_Process -Filter "Name='$name'" |
       Where-Object { $_.CommandLine -and $_.CommandLine -match $pattern } |

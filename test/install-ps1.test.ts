@@ -140,6 +140,31 @@ test('Get-Code: zip из ARCHIVE распаковывается без верх�
   spawnSync('zip', ['-qr', zip, 'tg-chat-translator'], { cwd: source })
   const into = join(mkdtempSync(join(tmpdir(), 'translator-ps-into-')), 'code')
   const run = ps('install.ps1', `Get-Code '${into}'`, { ARCHIVE: zip })
+
+test('Get-BotProcessPattern: свой бот — да, папка -old — нет, шаблон не пустой', { skip: noPwsh }, () => {
+  for (const script of ['install.ps1', 'uninstall.ps1']) {
+    const t = 'C:\\Users\\A\\tg-chat-translator'
+    const code = `
+$p = Get-BotProcessPattern '${t}'
+"pattern:$([string]::IsNullOrEmpty($p))"
+"own-run:$('powershell.exe -NoProfile -File "C:\\Users\\A\\tg-chat-translator\\run.ps1"' -match $p)"
+"own-node:$('\"C:\\Users\\A\\tg-chat-translator\\node/node.exe\" src/main.ts' -match $p)"
+"old:$('powershell.exe -File "C:\\Users\\A\\tg-chat-translator-old\\run.ps1"' -match $p)"
+"unrelated:$('C:\\Windows\\System32\\notepad.exe' -match $p)"
+$t2 = 'C:\\Users\\A\\tg-chat-translator\\'
+$p2 = Get-BotProcessPattern $t2
+"trailing-slash:$('powershell.exe -NoProfile -File "C:\\Users\\A\\tg-chat-translator\\run.ps1"' -match $p2)"
+`
+    const run = ps(script, code)
+    assert.equal(run.status, 0, run.out)
+    assert.match(run.out, /pattern:False/, `${script}: pattern not empty`)
+    assert.match(run.out, /own-run:True/, `${script}: matches own run.ps1`)
+    assert.match(run.out, /own-node:True/, `${script}: matches own node.exe`)
+    assert.match(run.out, /old:False/, `${script}: does not match -old folder`)
+    assert.match(run.out, /unrelated:False/, `${script}: does not match unrelated process`)
+    assert.match(run.out, /trailing-slash:True/, `${script}: works with trailing slash in target`)
+  }
+})
   assert.equal(run.status, 0, run.out)
   assert.deepEqual(readdirSync(into).sort(), ['package.json', 'src'])
 })
