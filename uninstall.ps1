@@ -13,6 +13,9 @@ $RunName = 'tg-chat-translator'
 $Raw = 'https://raw.githubusercontent.com/wolkart/tg-chat-translator/main'
 $UserHome = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
 
+# Что в папке бота живёт дольше кода (как в install.ps1).
+$Keep = @('.env', 'data', 'node')
+
 function Say($text) { Write-Host ''; Write-Host $text -ForegroundColor White }
 function Ok($text) { Write-Host "  ✓ $text" -ForegroundColor Green }
 function Warn($text) { Write-Host "  ! $text" -ForegroundColor Yellow }
@@ -43,7 +46,8 @@ function Test-OnlyKeep($Path) {
 }
 
 function Test-OurDir($Path) {
-  (Test-Ours $Path) -or ((Test-Path -LiteralPath $Path -PathType Container) -and (Test-OnlyKeep $Path))
+  # Пустую папку своей не считаем (Test-OnlyKeep её принимает — этого требует установка).
+  (Test-Ours $Path) -or ((Test-Path -LiteralPath $Path -PathType Container) -and (@(Get-ChildItem -LiteralPath $Path -Force).Count -gt 0) -and (Test-OnlyKeep $Path))
 }
 
 function Get-BackupPath {
