@@ -181,7 +181,12 @@ function Stop-Bot($Target) {
   foreach ($name in @('powershell.exe', 'node.exe')) {
     Get-CimInstance Win32_Process -Filter "Name='$name'" |
       Where-Object { $_.CommandLine -and $_.CommandLine -match $pattern } |
-      ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+      ForEach-Object {
+        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+        # Stop-Process возвращается раньше, чем Windows отпустит файлы node.exe: без ожидания
+        # удаление папки Node сразу за остановкой падало бы.
+        Wait-Process -Id $_.ProcessId -Timeout 10 -ErrorAction SilentlyContinue
+      }
   }
 }
 
@@ -263,10 +268,8 @@ function Install-Translator {
     Fail "Не поставились зависимости бота. $NetHint"
   }
   Remove-Item -LiteralPath $npmLog -Force -ErrorAction SilentlyContinue
-  # Бот останавливается только теперь, когда всё нужное скачано: не вышло скачать — старая
-  # версия работает дальше. Файлы .ts и node_modules под работающим node удаляются: node
-  # их не держит.
-  Stop-Bot $Dir
+  # Код меняется под работающим ботом: node не держит .ts и node_modules. Останавливать
+  # бота рано — сорвутся вопросы setup.ts (нет VPN, Ctrl+C), и он лежал бы до следующего входа.
   Update-Code $work $Dir
   New-Item -ItemType Directory -Path (Join-Path $Dir 'data') -Force | Out-Null
   Ok "Бот — в папке $Dir"
@@ -278,6 +281,9 @@ function Install-Translator {
   # Причину setup.ts уже сказал сам.
   if ($LASTEXITCODE -ne 0) { throw 'tg-chat-translator: stop' }
 
+  # Бот останавливается только теперь, когда скачано и отвечено всё нужное: сорвалось раньше —
+  # старая версия работает дальше.
+  Stop-Bot $Dir
   Say 'Запускаю…'
   $log = Join-Path $Dir 'data/bot.log'
   # Журнал больше 5 МБ run.ps1 переносит в .1 при старте; если не сделать этого до подсчёта

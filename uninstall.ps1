@@ -32,6 +32,22 @@ function Test-Ours($Path) {
     ((Get-Content -LiteralPath $package -Raw) -match '"name": "tg-chat-translator"')
 }
 
+# Папка, где лежит только то, что переживает обновление, — тоже наша: прошлая установка
+# могла оборваться, успев записать .env с токеном, и «Ничего не найдено» оставило бы его на
+# диске. Пустую папку своей не считаем.
+function Test-OnlyKeep($Path) {
+  $keep = @('.env', 'data', 'node')
+  $ignored = @('desktop.ini', 'Thumbs.db')
+  $items = @(Get-ChildItem -LiteralPath $Path -Force)
+  if ($items.Count -eq 0) { return $false }
+  $foreign = @($items | Where-Object { ($keep -notcontains $_.Name) -and ($ignored -notcontains $_.Name) })
+  $foreign.Count -eq 0
+}
+
+function Test-OurDir($Path) {
+  (Test-Ours $Path) -or ((Test-Path -LiteralPath $Path -PathType Container) -and (Test-OnlyKeep $Path))
+}
+
 function Get-BackupPath {
   $path = Join-Path $UserHome ("tg-chat-translator-backup-{0}.db" -f (Get-Date -Format 'yyyy-MM-dd'))
   if (Test-Path -LiteralPath $path) {
@@ -53,7 +69,12 @@ function Stop-Bot($Target) {
   foreach ($name in @('powershell.exe', 'node.exe')) {
     Get-CimInstance Win32_Process -Filter "Name='$name'" |
       Where-Object { $_.CommandLine -and $_.CommandLine -match $pattern } |
-      ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+      ForEach-Object {
+        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+        # Stop-Process возвращается раньше, чем Windows отпустит файлы node.exe: без ожидания
+        # удаление папки Node сразу за остановкой падало бы.
+        Wait-Process -Id $_.ProcessId -Timeout 10 -ErrorAction SilentlyContinue
+      }
   }
 }
 
@@ -82,7 +103,7 @@ function Save-Backup($Target) {
 function Uninstall-Translator([switch]$Yes) {
   Say 'tg-chat-translator — удаление'
   $agent = Test-Autostart
-  $folder = Test-Ours $Dir
+  $folder = Test-OurDir $Dir
   if (-not $agent -and -not $folder) {
     Ok 'Ничего не найдено — бот на этой машине не стоит.'
     Write-Host ''

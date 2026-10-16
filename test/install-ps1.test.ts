@@ -211,3 +211,15 @@ test('uninstall.ps1: удалять нечего — «Ничего не най�
   assert.equal(run.status, 0, run.out)
   assert.match(run.out, /Ничего не найдено — бот на этой машине не стоит/)
 })
+
+test('Stop-Bot ждёт выхода процессов, а бот в install.ps1 останавливается после вопросов setup.ts', () => {
+  for (const script of ['install.ps1', 'uninstall.ps1']) {
+    assert.match(codeOnly(readFileSync(join(ROOT, script), 'utf8')), /Wait-Process -Id \$_\.ProcessId -Timeout 10/, script)
+  }
+  const code = codeOnly(readFileSync(join(ROOT, 'install.ps1'), 'utf8'))
+  const afterAnswers = code.indexOf("'src/install/setup.ts'")
+  const stops = [...code.matchAll(/^\s*Stop-Bot \$Dir\b/gm)].map((match) => match.index!)
+  assert.equal(stops.length, 1)
+  assert.ok(stops[0]! > afterAnswers, 'Stop-Bot $Dir должен идти после setup.ts')
+})
+
