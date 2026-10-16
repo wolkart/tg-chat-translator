@@ -53,13 +53,17 @@ function Invoke-Native([scriptblock]$Block) {
 
 function Test-Ours($Path) {
   $package = Join-Path $Path 'package.json'
-  (Test-Path -LiteralPath (Join-Path $Path 'src/main.ts')) -and (Test-Path -LiteralPath $package) -and
+  # Папка с .git — клон для разработки, а не установка: обновление снесло бы историю и
+  # незакоммиченное.
+  (-not (Test-Path -LiteralPath (Join-Path $Path '.git'))) -and (Test-Path -LiteralPath (Join-Path $Path 'src/main.ts')) -and (Test-Path -LiteralPath $package) -and
     ((Get-Content -LiteralPath $package -Raw) -match '"name": "tg-chat-translator"')
 }
 
 # Папка, где лежит только то, что переживает обновление (или ничего), — тоже наша.
+# desktop.ini и Thumbs.db Проводник кладёт сам, стоит открыть папку.
 function Test-OnlyKeep($Path) {
-  $foreign = @(Get-ChildItem -LiteralPath $Path -Force | Where-Object { $Keep -notcontains $_.Name })
+  $ignored = @('desktop.ini', 'Thumbs.db')
+  $foreign = @(Get-ChildItem -LiteralPath $Path -Force | Where-Object { ($Keep -notcontains $_.Name) -and ($ignored -notcontains $_.Name) })
   $foreign.Count -eq 0
 }
 
@@ -116,7 +120,12 @@ function Install-Node($Arch, $Dest) {
     if ($actual -ne $expected.ToLower()) { Fail 'Скачанный Node повреждён или подменён — запустите команду ещё раз.' }
     Expand-Zip $zip $work
     $unpacked = Join-Path $work ($file -replace '\.zip$', '')
-    if (Test-Path -LiteralPath $Dest) { Remove-Item -LiteralPath $Dest -Recurse -Force }
+    if (Test-Path -LiteralPath $Dest) {
+      # Бот останавливается только здесь: node.exe работающего бота заперт, и заменить Node
+      # под ним Windows не даст. Раньше нельзя — не скачалось бы, и бот остался бы стоять.
+      Stop-Bot (Split-Path -Parent $Dest)
+      Remove-Item -LiteralPath $Dest -Recurse -Force
+    }
     Move-Item -LiteralPath $unpacked -Destination $Dest
   } finally {
     Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
@@ -159,15 +168,14 @@ function Update-Code($New, $Target) {
   Remove-Item -LiteralPath $New -Recurse -Force
 }
 
-# Надзиратель и бот находятся по пути к папке бота в командной строке процесса: чужие
-# процессы node и PowerShell так не задеть. Надзиратель — первым, иначе он поднимет node.
-
-# Helper function for Stop-Bot pattern: matches target folder path with trailing backslash to avoid
-# false matches on similarly named folders like tg-chat-translator-old.
+# Шаблон для поиска процессов бота: путь к папке с обратным слэшем на конце, чтобы не
+# задеть соседнюю папку вроде tg-chat-translator-old.
 function Get-BotProcessPattern($Target) {
   [regex]::Escape($Target.TrimEnd('\', '/') + '\')
 }
 
+# Надзиратель и бот находятся по пути к папке бота в командной строке процесса: чужие
+# процессы node и PowerShell так не задеть. Надзиратель — первым, иначе он поднимет node.
 function Stop-Bot($Target) {
   $pattern = Get-BotProcessPattern $Target
   foreach ($name in @('powershell.exe', 'node.exe')) {
@@ -186,7 +194,9 @@ function Get-RunCommand($Target) {
 # входе» без прав администратора создаётся ненадёжно, а перезапуск после падения всё равно
 # делает run.ps1.
 function Register-Autostart($Target) {
-  New-Item -Path $RunKey -Force | Out-Null
+  # Без -Force: на разделе реестра он пересоздаёт его пустым и стирает чужую автозагрузку
+  # покупателя (OneDrive, Teams, Telegram Desktop).
+  if (-not (Test-Path -LiteralPath $RunKey)) { New-Item -Path $RunKey | Out-Null }
   Set-ItemProperty -Path $RunKey -Name $RunName -Value (Get-RunCommand $Target)
 }
 
@@ -234,9 +244,6 @@ function Install-Translator {
   $envFile = Join-Path $Dir '.env'
   if ((Test-Path -LiteralPath $envFile) -and (Select-String -LiteralPath $envFile -Pattern '^OWNER_ID=\d+' -Quiet)) { $firstTime = $false }
 
-  # Бот останавливается до загрузки: node.exe работающего бота заперт, и заменить Node
-  # под ним Windows не даст.
-  Stop-Bot $Dir
   New-Item -ItemType Directory -Path $Dir -Force | Out-Null
   Install-Node $arch (Join-Path $Dir 'node')
   $env:Path = (Join-Path $Dir 'node') + ';' + $env:Path
@@ -256,6 +263,10 @@ function Install-Translator {
     Fail "Не поставились зависимости бота. $NetHint"
   }
   Remove-Item -LiteralPath $npmLog -Force -ErrorAction SilentlyContinue
+  # Бот останавливается только теперь, когда всё нужное скачано: не вышло скачать — старая
+  # версия работает дальше. Файлы .ts и node_modules под работающим node удаляются: node
+  # их не держит.
+  Stop-Bot $Dir
   Update-Code $work $Dir
   New-Item -ItemType Directory -Path (Join-Path $Dir 'data') -Force | Out-Null
   Ok "Бот — в папке $Dir"
@@ -269,6 +280,11 @@ function Install-Translator {
 
   Say 'Запускаю…'
   $log = Join-Path $Dir 'data/bot.log'
+  # Журнал больше 5 МБ run.ps1 переносит в .1 при старте; если не сделать этого до подсчёта
+  # строк, счёт собьётся и «запущен» будет пропущен.
+  if ((Test-Path -LiteralPath $log) -and (Get-Item -LiteralPath $log).Length -gt 5MB) {
+    Move-Item -LiteralPath $log -Destination "$log.1" -Force
+  }
   $before = (Get-LogLines $log).Count
   Register-Autostart $Dir
   Start-Bot $Dir
@@ -287,7 +303,7 @@ function Install-Translator {
   }
   Write-Host ''
   Write-Host '  Обновить:  та же команда, что и для установки'
-  Write-Host "  Удалить:   irm $Raw/uninstall.ps1 | iex"
+  Write-Host "  Удалить:   [Net.ServicePointManager]::SecurityProtocol='Tls12'; irm $Raw/uninstall.ps1 | iex"
   Write-Host "  Журнал:    $log"
   Write-Host ''
 }

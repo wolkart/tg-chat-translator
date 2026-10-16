@@ -117,6 +117,41 @@ test('Update-Code: чужую папку не трогает', { skip: noPwsh },
   assert.equal(readFileSync(join(dir, 'фото.jpg'), 'utf8'), 'не удалять')
 })
 
+test('Update-Code: клон для разработки (с .git) — не наша папка, файлы целы', { skip: noPwsh }, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'translator-ps-'))
+  write(join(dir, 'package.json'), PACKAGE)
+  write(join(dir, 'src/main.ts'), 'мои правки')
+  write(join(dir, '.git/HEAD'), 'ref: refs/heads/main')
+  const fresh = mkdtempSync(join(tmpdir(), 'translator-ps-new-'))
+  write(join(fresh, 'package.json'), PACKAGE)
+  const run = ps('install.ps1', `try { Update-Code '${fresh}' '${dir}' } catch { 'поймано' }`)
+  assert.match(run.out, /уже занята чем-то другим/)
+  assert.equal(readFileSync(join(dir, 'src/main.ts'), 'utf8'), 'мои правки')
+  assert.ok(existsSync(join(dir, '.git/HEAD')))
+})
+
+test('Test-OnlyKeep: desktop.ini и Thumbs.db Проводника не мешают', { skip: noPwsh }, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'translator-ps-'))
+  write(join(dir, 'node/node.exe'), 'node')
+  write(join(dir, 'desktop.ini'), '')
+  write(join(dir, 'Thumbs.db'), '')
+  assert.match(ps('install.ps1', `Test-OnlyKeep '${dir}'`).out, /True/)
+  write(join(dir, 'фото.jpg'), 'чужое')
+  assert.match(ps('install.ps1', `Test-OnlyKeep '${dir}'`).out, /False/)
+})
+
+test('автозагрузка Windows: New-Item с -Force на HKCU/RunKey стёр бы чужие записи', () => {
+  for (const script of ['install.ps1', 'uninstall.ps1']) {
+    const code = readFileSync(join(ROOT, script), 'utf8')
+      .split('\n')
+      .map((line) => line.replace(/#.*$/, ''))
+      .join('\n')
+    for (const line of code.split('\n')) {
+      if (/New-Item/.test(line) && /(HKCU:|\$RunKey)/.test(line)) assert.doesNotMatch(line, /-Force/, `${script}: ${line}`)
+    }
+  }
+})
+
 test('Find-NodeFile: сумма и имя архива для своей сборки', { skip: noPwsh }, () => {
   const sums = [
     `${'a'.repeat(64)}  node-v24.22.0-darwin-arm64.tar.gz`,

@@ -1,5 +1,5 @@
 # Удаление tg-chat-translator с Windows одной командой — в PowerShell:
-#   irm https://raw.githubusercontent.com/wolkart/tg-chat-translator/main/uninstall.ps1 | iex
+#   [Net.ServicePointManager]::SecurityProtocol='Tls12'; irm https://raw.githubusercontent.com/wolkart/tg-chat-translator/main/uninstall.ps1 | iex
 #
 # Снимает только этого бота: автозапуск, процессы бота и папку бота. Перед удалением
 # сохраняет копию базы: в ней ключ модели и настройки панели. Node в системе и другие
@@ -27,7 +27,8 @@ function Fail($text) {
 
 function Test-Ours($Path) {
   $package = Join-Path $Path 'package.json'
-  (Test-Path -LiteralPath (Join-Path $Path 'src/main.ts')) -and (Test-Path -LiteralPath $package) -and
+  # Папка с .git — клон для разработки, а не установка: её удалять нельзя.
+  (-not (Test-Path -LiteralPath (Join-Path $Path '.git'))) -and (Test-Path -LiteralPath (Join-Path $Path 'src/main.ts')) -and (Test-Path -LiteralPath $package) -and
     ((Get-Content -LiteralPath $package -Raw) -match '"name": "tg-chat-translator"')
 }
 
@@ -39,14 +40,14 @@ function Get-BackupPath {
   $path
 }
 
-# Надзиратель — первым, иначе он поднимет node снова.
-
-# Helper function for Stop-Bot pattern: matches target folder path with trailing backslash to avoid
-# false matches on similarly named folders like tg-chat-translator-old.
+# Шаблон для поиска процессов бота: путь к папке с обратным слэшем на конце, чтобы не
+# задеть соседнюю папку вроде tg-chat-translator-old.
 function Get-BotProcessPattern($Target) {
   [regex]::Escape($Target.TrimEnd('\', '/') + '\')
 }
 
+# Надзиратель и бот находятся по пути к папке бота в командной строке процесса. Надзиратель
+# — первым, иначе он поднимет node снова.
 function Stop-Bot($Target) {
   $pattern = Get-BotProcessPattern $Target
   foreach ($name in @('powershell.exe', 'node.exe')) {
