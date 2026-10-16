@@ -30,8 +30,13 @@ async function reachable(fetchImpl: typeof fetch, url: string): Promise<boolean>
 export const connectivityStep: SetupStep = {
   id: 'connectivity',
   async run(ctx) {
-    if (!(await reachable(ctx.fetch, 'https://api.telegram.org/'))) return { ok: false, reason: TELEGRAM_UNREACHABLE }
-    if (!(await reachable(ctx.fetch, 'https://openrouter.ai/api/v1/key'))) ctx.io.say(OPENROUTER_UNREACHABLE)
+    // Обе проверки сразу: по очереди без связи они ждали бы по 10 секунд каждая.
+    const [telegram, openrouter] = await Promise.all([
+      reachable(ctx.fetch, 'https://api.telegram.org/'),
+      reachable(ctx.fetch, 'https://openrouter.ai/api/v1/key'),
+    ])
+    if (!telegram) return { ok: false, reason: TELEGRAM_UNREACHABLE }
+    if (!openrouter) ctx.io.say(OPENROUTER_UNREACHABLE)
     return { ok: true }
   },
 }

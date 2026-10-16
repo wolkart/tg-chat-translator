@@ -154,3 +154,9 @@ test('backup.ts из командной строки: код 0 и файл; ба
   assert.equal(missing.status, 1)
   assert.match(missing.stderr, /Базы нет/)
 })
+
+test('renderEnv: пустая строка и комментарий над ключом остаются как были', () => {
+  const old = '# --- Обязательные\n\nBOT_TOKEN=old\nOWNER_ID=1\n'
+  const text = renderEnv(old, { BOT_TOKEN: TOKEN, OWNER_ID: '100001' })
+  assert.equal(text, `# --- Обязательные\n\nBOT_TOKEN=${TOKEN}\nOWNER_ID=100001\n`)
+})

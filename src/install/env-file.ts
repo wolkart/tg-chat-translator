@@ -19,7 +19,8 @@ export function renderEnv(raw: string, values: { BOT_TOKEN: string; OWNER_ID: st
   if (!raw.trim()) return `${HEADER}\nBOT_TOKEN=${values.BOT_TOKEN}\nOWNER_ID=${values.OWNER_ID}\n`
   let text = raw.endsWith('\n') ? raw : raw + '\n'
   for (const [key, value] of Object.entries(values)) {
-    const line = new RegExp(`^\\s*${key}\\s*=.*$`, 'm')
+    // [ \t], а не \s: \s с флагом m захватил бы пустые строки над ключом и склеил блоки файла.
+    const line = new RegExp(`^[ \\t]*${key}[ \\t]*=.*$`, 'm')
     text = line.test(text) ? text.replace(line, `${key}=${value}`) : text + `${key}=${value}\n`
   }
   return text

@@ -54,8 +54,9 @@ test('связь: любой ответ сервера — значит, дос�
   const { fetchImpl, calls } = fakeFetch((url) => (url.includes('openrouter') ? json({ error: 'no auth' }, 401) : new Response('', { status: 302 })))
   assert.deepEqual(await connectivityStep.run(setupContext({ io, fetch: fetchImpl })), { ok: true })
   assert.deepEqual(output, [])
+  // Запросы идут одновременно, порядок в записи не гарантирован.
   assert.deepEqual(
-    calls.map((call) => call.url),
+    calls.map((call) => call.url).sort(),
     ['https://api.telegram.org/', 'https://openrouter.ai/api/v1/key'],
   )
 })
@@ -128,4 +129,18 @@ test('спека: токен в .env отозван — установщик п�
   assert.equal(ctx.answers.token, OTHER_TOKEN)
   assert.equal(ctx.answers.tokenChanged, true)
   assert.equal(output[0], ENV_TOKEN_REJECTED)
+})
+
+test('связь: Telegram и OpenRouter проверяются одновременно, а не по очереди', async () => {
+  let started = 0
+  let bothStarted = false
+  const fetchImpl = (async () => {
+    started++
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    if (started === 2) bothStarted = true
+    return new Response('', { status: 200 })
+  }) as unknown as typeof fetch
+  await connectivityStep.run(setupContext({ io: fakeIo().io, fetch: fetchImpl }))
+  // По очереди второй запрос стартовал бы после ответа первого: к ответу первого started был бы 1.
+  assert.equal(bothStarted, true)
 })

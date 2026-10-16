@@ -75,7 +75,7 @@ const deps: Deps = {
   now,
 }
 const app = createApp(deps)
-scheduleWarnings(deps, env.ownerId)
+const stopWarnings = scheduleWarnings(deps, env.ownerId)
 
 bot.use((ctx) => app.handleUpdate(ctx.update))
 bot.catch((error) => {
@@ -85,7 +85,8 @@ bot.catch((error) => {
 // Служебные записи (обработанные апдейты, «Кому?», эхо) чистим раз в час, а ещё раз — при старте:
 // при частых перезапусках час не успевал бы пройти, и чистка не случалась бы никогда.
 store.cleanup(now())
-setInterval(() => store.cleanup(now()), HOUR).unref()
+const cleanupTimer = setInterval(() => store.cleanup(now()), HOUR)
+cleanupTimer.unref()
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {
@@ -93,12 +94,20 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   })
 }
 
-// Строку «@бот запущен» ждёт установщик: по ней он понимает, что бот поднялся.
-alerts.log(dry ? `@${me.username}: холостой прогон — собеседникам ничего не уходит` : `@${me.username} запущен`)
+// Строку «@бот запущен» ждёт установщик: по ней он понимает, что бот поднялся. Пишем её из
+// onStart, а не заранее: grammY зовёт его после проверки токена и снятия вебхука, перед
+// первым опросом, — упавший init или 409 не должен успеть превратиться в «✓ Готово».
+const started = () =>
+  alerts.log(dry ? `@${me.username}: холостой прогон — собеседникам ничего не уходит` : `@${me.username} запущен`)
 const outcome = await runPolling({
-  start: () => bot.start({ allowed_updates: [...ALLOWED_UPDATES] }),
+  start: () => bot.start({ allowed_updates: [...ALLOWED_UPDATES], onStart: started }),
   alerts,
   place: placeName(),
 })
-if (outcome === 'sleep') await sleepForever()
+if (outcome === 'sleep') {
+  // Уснувшая копия молчит: предупреждения по её старой базе («ключ истекает») были бы ложными.
+  stopWarnings()
+  clearInterval(cleanupTimer)
+  await sleepForever()
+}
 store.close()

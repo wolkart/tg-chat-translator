@@ -1,7 +1,7 @@
-import { test } from 'node:test'
+import { mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DAY, keySetting } from '../src/store.ts'
-import { checkWarnings, warningTexts } from '../src/owner/warnings.ts'
+import { WARNINGS_INTERVAL_MS, checkWarnings, scheduleWarnings, warningTexts } from '../src/owner/warnings.ts'
 import { getProvider } from '../src/translate/providers.ts'
 import { SAMPLE_BALANCE, samplePrices } from './fakes.ts'
 import { OWNER_ID, T0 } from './helpers.ts'
@@ -166,4 +166,22 @@ test('ключ не принят провайдером — предупрежд
   ctx.accounts.state.rejected = true
   await checkWarnings(ctx.deps, OWNER_ID)
   assert.deepEqual(ctx.sent(), [])
+})
+
+test('уснувшая копия: после остановки предупреждения больше не проверяются и не уходят', async () => {
+  mock.timers.enable({ apis: ['setInterval'] })
+  try {
+    const ctx = warned()
+    const stop = scheduleWarnings(ctx.deps, OWNER_ID)
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(ctx.sent().length, 1)
+    stop()
+    // Сутки спустя то же предупреждение ушло бы снова — если бы таймер ещё работал.
+    ctx.advance(DAY)
+    mock.timers.tick(WARNINGS_INTERVAL_MS * 2)
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(ctx.sent().length, 1)
+  } finally {
+    mock.timers.reset()
+  }
 })

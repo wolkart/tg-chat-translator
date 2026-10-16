@@ -116,10 +116,16 @@ export async function checkWarnings(deps: Deps, ownerId: number): Promise<void> 
   }
 }
 
-/** При старте и дальше каждые 6 часов. Сбой проверки — строка в консоль, бот работает дальше. */
-export function scheduleWarnings(deps: Deps, ownerId: number): void {
+/**
+ * При старте и дальше каждые 6 часов. Сбой проверки — строка в консоль, бот работает дальше.
+ * Возвращает остановку: уснувшая копия (её место занял другой запуск) не должна слать
+ * предупреждения по своей старой базе.
+ */
+export function scheduleWarnings(deps: Deps, ownerId: number): () => void {
   const run = () =>
     checkWarnings(deps, ownerId).catch((error: unknown) => deps.alerts.log(`предупреждения не проверены: ${describeError(error)}`))
   void run()
-  setInterval(run, WARNINGS_INTERVAL_MS).unref()
+  const timer = setInterval(run, WARNINGS_INTERVAL_MS)
+  timer.unref()
+  return () => clearInterval(timer)
 }
