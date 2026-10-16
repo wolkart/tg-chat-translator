@@ -71,6 +71,8 @@ export async function onBusinessConnection(deps: Deps, info: BusinessConnectionI
  */
 export async function ensureConnection(deps: Deps, connectionId: string): Promise<Connection> {
   const known = deps.store.getConnection(connectionId)
-  if (known) return known
+  // Флаг в базе посчитан для того, кто был владельцем тогда: после восстановления базы
+  // из копии под другим OWNER_ID он переходить не должен, поэтому сверяем заново.
+  if (known) return { ...known, allowed: isAllowedOwner(known.ownerId, deps.ownerId) }
   return onBusinessConnection(deps, await deps.api.getBusinessConnection(connectionId))
 }

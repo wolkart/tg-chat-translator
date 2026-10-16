@@ -9,8 +9,9 @@ import {
   isAllowedOwner,
   onBusinessConnection,
 } from '../src/channels/private-chat/connection.ts'
+import { onBusinessMessage } from '../src/channels/private-chat/incoming.ts'
 import { toConnectionInfo } from '../src/telegram.ts'
-import { CONNECTION_ID, OWNER_ID, STRANGER_ID, fixture } from './helpers.ts'
+import { CONNECTION_ID, OWNER_ID, STRANGER_ID, fixture, messageFixture } from './helpers.ts'
 import { setupDeps } from './setup.ts'
 
 function info(name: string) {
@@ -115,4 +116,16 @@ test('старый путь «Настройки → Автоматизация 
     const source = readFileSync(new URL(`../src/${file}`, import.meta.url), 'utf8')
     assert.ok(!source.includes('Настройки → Автоматизация чатов'), file)
   }
+})
+
+test('спека: подключение из старой базы чужого владельца не пропускает сообщения', async () => {
+  const { deps, tg, store, translator } = setupDeps()
+  store.saveConnection(
+    { id: CONNECTION_ID, ownerId: STRANGER_ID, userChatId: STRANGER_ID, canReply: true, isEnabled: true, allowed: true },
+    deps.now(),
+  )
+  await onBusinessMessage(deps, messageFixture('business-message-peer-text'))
+  assert.equal(translator.calls.length, 0)
+  assert.equal(tg.callsOf('sendText').length, 0)
+  assert.equal((await ensureConnection(deps, CONNECTION_ID)).allowed, false)
 })
