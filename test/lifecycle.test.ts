@@ -1,4 +1,4 @@
-import { test } from 'node:test'
+import { mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { GrammyError, HttpError } from 'grammy'
 import { createAlerts } from '../src/alerts.ts'
@@ -8,6 +8,7 @@ import {
   classifyStop,
   conflictText,
   connectTelegram,
+  createBackground,
   placeName,
   runPolling,
 } from '../src/lifecycle.ts'
@@ -178,4 +179,22 @@ test('runPolling: обычная остановка — stopped, сбой — н
     }),
     GrammyError,
   )
+})
+
+test('createBackground: два таймера, stopAll гасит оба', () => {
+  mock.timers.enable({ apis: ['setInterval'] })
+  try {
+    const background = createBackground()
+    let a = 0
+    let b = 0
+    background.every(() => a++, 100)
+    background.every(() => b++, 250)
+    mock.timers.tick(500)
+    assert.deepEqual([a, b], [5, 2])
+    background.stopAll()
+    mock.timers.tick(1000)
+    assert.deepEqual([a, b], [5, 2])
+  } finally {
+    mock.timers.reset()
+  }
 })

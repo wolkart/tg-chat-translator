@@ -1,6 +1,7 @@
 import { mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DAY, keySetting } from '../src/store.ts'
+import { createBackground } from '../src/lifecycle.ts'
 import { WARNINGS_INTERVAL_MS, checkWarnings, scheduleWarnings, warningTexts } from '../src/owner/warnings.ts'
 import { getProvider } from '../src/translate/providers.ts'
 import { SAMPLE_BALANCE, samplePrices } from './fakes.ts'
@@ -172,15 +173,32 @@ test('уснувшая копия: после остановки предупр�
   mock.timers.enable({ apis: ['setInterval'] })
   try {
     const ctx = warned()
-    const stop = scheduleWarnings(ctx.deps, OWNER_ID)
+    const background = createBackground()
+    scheduleWarnings(ctx.deps, OWNER_ID, background)
     await new Promise((resolve) => setImmediate(resolve))
     assert.equal(ctx.sent().length, 1)
-    stop()
+    background.stopAll()
     // Сутки спустя то же предупреждение ушло бы снова — если бы таймер ещё работал.
     ctx.advance(DAY)
     mock.timers.tick(WARNINGS_INTERVAL_MS * 2)
     await new Promise((resolve) => setImmediate(resolve))
     assert.equal(ctx.sent().length, 1)
+  } finally {
+    mock.timers.reset()
+  }
+})
+
+test('без stopAll таймер предупреждений работает: через сутки то же предупреждение уходит снова', async () => {
+  mock.timers.enable({ apis: ['setInterval'] })
+  try {
+    const ctx = warned()
+    scheduleWarnings(ctx.deps, OWNER_ID, createBackground())
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(ctx.sent().length, 1)
+    ctx.advance(DAY)
+    mock.timers.tick(WARNINGS_INTERVAL_MS)
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(ctx.sent().length, 2)
   } finally {
     mock.timers.reset()
   }

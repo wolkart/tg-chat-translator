@@ -1,6 +1,7 @@
 import type { Deps } from '../deps.ts'
 import { dayMonth, money, utcDay } from '../format.ts'
 import { DAY, HOUR, warnedSetting } from '../store.ts'
+import type { createBackground } from '../lifecycle.ts'
 import { describeError } from '../telegram.ts'
 import type { Balance, ModelPrice } from '../translate/account.ts'
 import { translationsPhrase } from '../translate/cost.ts'
@@ -16,6 +17,8 @@ export const LOW_BALANCE_USD = 1
  * бы следующий день. Повторов это не даёт — каждое предупреждение уходит раз в сутки.
  */
 export const WARNINGS_INTERVAL_MS = 6 * HOUR
+
+type Background = ReturnType<typeof createBackground>
 
 export type WarningInput = {
   provider: Provider
@@ -118,14 +121,12 @@ export async function checkWarnings(deps: Deps, ownerId: number): Promise<void> 
 
 /**
  * При старте и дальше каждые 6 часов. Сбой проверки — строка в консоль, бот работает дальше.
- * Возвращает остановку: уснувшая копия (её место занял другой запуск) не должна слать
- * предупреждения по своей старой базе.
+ * Таймер — в background: уснувшая копия (её место занял другой запуск) гасит его вместе с
+ * остальным и не шлёт предупреждения по своей старой базе.
  */
-export function scheduleWarnings(deps: Deps, ownerId: number): () => void {
+export function scheduleWarnings(deps: Deps, ownerId: number, background: Pick<Background, 'every'>): void {
   const run = () =>
     checkWarnings(deps, ownerId).catch((error: unknown) => deps.alerts.log(`предупреждения не проверены: ${describeError(error)}`))
   void run()
-  const timer = setInterval(run, WARNINGS_INTERVAL_MS)
-  timer.unref()
-  return () => clearInterval(timer)
+  background.every(run, WARNINGS_INTERVAL_MS)
 }

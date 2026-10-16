@@ -1,7 +1,7 @@
 import { hostname } from 'node:os'
 import { GrammyError, HttpError } from 'grammy'
 import type { Alerts } from './alerts.ts'
-import { TelegramError, type BotInfo } from './telegram.ts'
+import { TelegramError, isTokenRejected, type BotInfo } from './telegram.ts'
 
 /**
  * Что делать процессу после ошибки Telegram:
@@ -30,8 +30,7 @@ function telegramFailure(error: unknown): { code: number; description: string } 
 export function classifyStop(error: unknown): StopKind {
   const failure = telegramFailure(error)
   if (failure) {
-    // Токен не того вида Telegram отвергает не 401, а 404.
-    if (failure.code === 401 || failure.code === 404) return 'sleep-token'
+    if (isTokenRejected(failure.code)) return 'sleep-token'
     // 409 бывает и из-за вебхука — его grammY снимает сам при следующем старте, поэтому
     // спать надо только на конфликт двух опросов.
     if (failure.code === 409 && /terminated by other getUpdates/i.test(failure.description)) return 'sleep-conflict'
@@ -114,6 +113,23 @@ export async function runPolling(deps: {
       return 'sleep'
     }
     throw error
+  }
+}
+
+/**
+ * Фоновые таймеры процесса в одном месте: уснувшая копия гасит всё фоновое одним вызовом —
+ * новый таймер не забудется. unref, чтобы таймеры не держали процесс при обычной остановке.
+ */
+export function createBackground(): { every(fn: () => void, ms: number): void; stopAll(): void } {
+  const timers: NodeJS.Timeout[] = []
+  return {
+    every(fn, ms) {
+      timers.push(setInterval(fn, ms).unref())
+    },
+    stopAll() {
+      for (const timer of timers) clearInterval(timer)
+      timers.length = 0
+    },
   }
 }
 

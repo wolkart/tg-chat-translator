@@ -67,7 +67,6 @@ test('спека: верный токен — подсказка, звёздоч
   const ctx = setupContext({ io, fetch: fetchImpl })
   assert.deepEqual(await tokenStep.run(ctx), { ok: true })
   assert.equal(ctx.answers.token, TOKEN)
-  assert.equal(ctx.answers.tokenChanged, true)
   assert.equal(ctx.answers.botUsername, 'aIrtem_tg_translator_bot')
   assert.match(text(), /@BotFather/)
   assert.ok(output.includes('Токен бота: '))
@@ -117,7 +116,7 @@ test('спека: обновление — токен из .env принят, в
   const ctx = setupContext({ io, fetch: fetchImpl, existing: { BOT_TOKEN: TOKEN, OWNER_ID: '42' } })
   assert.deepEqual(await tokenStep.run(ctx), { ok: true })
   assert.equal(ctx.answers.token, TOKEN)
-  assert.equal(ctx.answers.tokenChanged, undefined)
+  assert.equal(ctx.answers.token, ctx.existing.BOT_TOKEN)
   assert.deepEqual(output, ['✓ Бот @aIrtem_tg_translator_bot'])
 })
 
@@ -127,7 +126,7 @@ test('спека: токен в .env отозван — установщик п�
   const ctx = setupContext({ io, fetch: fetchImpl, existing: { BOT_TOKEN: TOKEN, OWNER_ID: '42' } })
   assert.deepEqual(await tokenStep.run(ctx), { ok: true })
   assert.equal(ctx.answers.token, OTHER_TOKEN)
-  assert.equal(ctx.answers.tokenChanged, true)
+  assert.notEqual(ctx.answers.token, ctx.existing.BOT_TOKEN)
   assert.equal(output[0], ENV_TOKEN_REJECTED)
 })
 

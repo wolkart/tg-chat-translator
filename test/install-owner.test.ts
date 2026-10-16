@@ -54,7 +54,6 @@ test('спека: владелец написал /start — «Это вы: …?
   const ctx = context(io, fetchImpl)
   assert.deepEqual(await ownerStep.run(ctx), { ok: true })
   assert.equal(ctx.answers.ownerId, OWNER_ID)
-  assert.equal(ctx.answers.ownerChanged, true)
   assert.ok(output.some((line) => line.includes('откройте @aIrtem_tg_translator_bot') && line.includes('/start')))
   assert.ok(output.includes('Это вы: Owner Test (@owner_test)? (да/нет): '))
   // Тот же /start должен достаться боту после запуска — ни одно сообщение не подтверждаем,
@@ -156,7 +155,6 @@ test('спека: обновление — id владельца уже в .env,
   const ctx = context(io, fetchImpl, { BOT_TOKEN: TOKEN, OWNER_ID: String(OWNER_ID) })
   assert.deepEqual(await ownerStep.run(ctx), { ok: true })
   assert.equal(ctx.answers.ownerId, OWNER_ID)
-  assert.equal(ctx.answers.ownerChanged, undefined)
   assert.deepEqual(output, [])
   assert.equal(calls.length, 0)
 })

@@ -84,6 +84,14 @@ export class TelegramError extends Error {
   }
 }
 
+/**
+ * Токен отвергнут: неверный Telegram отвергает кодом 401, а токен не того вида — кодом 404.
+ * Повторять с тем же токеном бессмысленно.
+ */
+export function isTokenRejected(code: number): boolean {
+  return code === 401 || code === 404
+}
+
 /** Человеческое описание любой ошибки — для пометок в теме и оповещений. */
 export function describeError(error: unknown): string {
   if (error instanceof TelegramError) return error.description

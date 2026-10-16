@@ -89,7 +89,6 @@ export const ownerStep: SetupStep = {
           }
           if (yes) {
             ctx.answers.ownerId = candidate.id
-            ctx.answers.ownerChanged = true
             ctx.io.say('✓ Владелец найден')
             return { ok: true }
           }
@@ -108,7 +107,6 @@ export const ownerStep: SetupStep = {
       const raw = await ctx.io.ask('Введите свой id в Telegram числом — его показывает бот @userinfobot: ')
       if (/^\d{4,}$/.test(raw)) {
         ctx.answers.ownerId = Number(raw)
-        ctx.answers.ownerChanged = true
         return { ok: true }
       }
       ctx.io.say('Нужно число, например 123456789.')

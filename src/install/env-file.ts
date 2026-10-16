@@ -16,8 +16,8 @@ export function readEnvFile(path: string): { raw: string; values: Record<string,
  * меняются только эти две строки — чужие строки и комментарии разработчика остаются.
  */
 export function renderEnv(raw: string, values: { BOT_TOKEN: string; OWNER_ID: string }): string {
-  if (!raw.trim()) return `${HEADER}\nBOT_TOKEN=${values.BOT_TOKEN}\nOWNER_ID=${values.OWNER_ID}\n`
-  let text = raw.endsWith('\n') ? raw : raw + '\n'
+  // Пустой файл — заголовок, дальше тот же путь, что дописывает недостающие ключи.
+  let text = !raw.trim() ? `${HEADER}\n` : raw.endsWith('\n') ? raw : raw + '\n'
   for (const [key, value] of Object.entries(values)) {
     // [ \t], а не \s: \s с флагом m захватил бы пустые строки над ключом и склеил блоки файла.
     const line = new RegExp(`^[ \\t]*${key}[ \\t]*=.*$`, 'm')
@@ -34,8 +34,9 @@ export function renderEnv(raw: string, values: { BOT_TOKEN: string; OWNER_ID: st
 export const writeEnvStep: SetupStep = {
   id: 'write-env',
   async run(ctx) {
-    const { token, ownerId, tokenChanged, ownerChanged } = ctx.answers
-    if (!tokenChanged && !ownerChanged) return { ok: true }
+    const { token, ownerId } = ctx.answers
+    // Что-то спросили заново — значит, ответ отличается от записанного в .env.
+    if (token === ctx.existing.BOT_TOKEN && String(ownerId) === ctx.existing.OWNER_ID) return { ok: true }
     const { raw } = readEnvFile(ctx.envPath)
     writeFileSync(ctx.envPath, renderEnv(raw, { BOT_TOKEN: token!, OWNER_ID: String(ownerId!) }), { mode: 0o600 })
     chmodSync(ctx.envPath, 0o600)

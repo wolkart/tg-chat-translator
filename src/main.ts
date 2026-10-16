@@ -3,7 +3,7 @@ import { Bot } from 'grammy'
 import { createAlerts, createScrubber } from './alerts.ts'
 import { ALLOWED_UPDATES, createApp } from './app.ts'
 import { loadEnv } from './env.ts'
-import { connectTelegram, placeName, runPolling, sleepForever } from './lifecycle.ts'
+import { connectTelegram, createBackground, placeName, runPolling, sleepForever } from './lifecycle.ts'
 import { createTopics } from './owner/topics.ts'
 import { scheduleWarnings } from './owner/warnings.ts'
 import type { Deps } from './deps.ts'
@@ -75,7 +75,8 @@ const deps: Deps = {
   now,
 }
 const app = createApp(deps)
-const stopWarnings = scheduleWarnings(deps, env.ownerId)
+const background = createBackground()
+scheduleWarnings(deps, env.ownerId, background)
 
 bot.use((ctx) => app.handleUpdate(ctx.update))
 bot.catch((error) => {
@@ -85,8 +86,7 @@ bot.catch((error) => {
 // Служебные записи (обработанные апдейты, «Кому?», эхо) чистим раз в час, а ещё раз — при старте:
 // при частых перезапусках час не успевал бы пройти, и чистка не случалась бы никогда.
 store.cleanup(now())
-const cleanupTimer = setInterval(() => store.cleanup(now()), HOUR)
-cleanupTimer.unref()
+background.every(() => store.cleanup(now()), HOUR)
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {
@@ -106,8 +106,7 @@ const outcome = await runPolling({
 })
 if (outcome === 'sleep') {
   // Уснувшая копия молчит: предупреждения по её старой базе («ключ истекает») были бы ложными.
-  stopWarnings()
-  clearInterval(cleanupTimer)
+  background.stopAll()
   await sleepForever()
 }
 store.close()

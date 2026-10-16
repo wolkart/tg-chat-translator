@@ -39,7 +39,7 @@ test('спека: первая установка — в .env токен и вл
     io,
     fetch: noNetwork,
     envPath,
-    answers: { token: TOKEN, ownerId: 100001, tokenChanged: true, ownerChanged: true },
+    answers: { token: TOKEN, ownerId: 100001 },
   })
   assert.deepEqual(await writeEnvStep.run(ctx), { ok: true })
   assert.deepEqual(parseDotEnv(readFileSync(envPath, 'utf8')), { BOT_TOKEN: TOKEN, OWNER_ID: '100001' })
@@ -51,7 +51,7 @@ test('спека: пустой .env, созданный заранее (серв
   const envPath = join(tempDir(), '.env')
   writeFileSync(envPath, '', { mode: 0o644 })
   const { io } = fakeIo()
-  const ctx = setupContext({ io, fetch: noNetwork, envPath, answers: { token: TOKEN, ownerId: 7, tokenChanged: true, ownerChanged: true } })
+  const ctx = setupContext({ io, fetch: noNetwork, envPath, answers: { token: TOKEN, ownerId: 7 } })
   await writeEnvStep.run(ctx)
   if (process.platform !== 'win32') assert.equal(statSync(envPath).mode & 0o777, 0o600)
   assert.equal(parseDotEnv(readFileSync(envPath, 'utf8')).OWNER_ID, '7')
@@ -62,7 +62,7 @@ test('спека: .env уже есть и всё принято — файл н�
   const before = `BOT_TOKEN=${TOKEN}\nOWNER_ID=100001\n`
   writeFileSync(envPath, before, { mode: 0o640 })
   const { io, output } = fakeIo()
-  const ctx = setupContext({ io, fetch: noNetwork, envPath, answers: { token: TOKEN, ownerId: 100001 } })
+  const ctx = setupContext({ io, fetch: noNetwork, envPath, answers: { token: TOKEN, ownerId: 100001 }, existing: { BOT_TOKEN: TOKEN, OWNER_ID: '100001' } })
   assert.deepEqual(await writeEnvStep.run(ctx), { ok: true })
   assert.equal(readFileSync(envPath, 'utf8'), before)
   assert.equal(statSync(envPath).mode & 0o777, 0o640)

@@ -14,9 +14,6 @@ export type SetupContext = {
     token?: string
     botUsername?: string
     ownerId?: number
-    /** Токен спросили заново — .env надо переписать */
-    tokenChanged?: boolean
-    ownerChanged?: boolean
   }
 }
 
