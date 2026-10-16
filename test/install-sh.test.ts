@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { tempDir, write } from './helpers.ts'
+import { functionText, tempDir, write } from './helpers.ts'
 
 /**
  * Функции install.sh и uninstall.sh вызываются по одной: скрипт с INSTALL_SH_LIB=1 только
@@ -243,4 +243,17 @@ test('DIR=относительный путь становится абсолю�
     env: { ...process.env, DIR: 'rel' },
   })
   assert.equal(run.stdout, join(cwd, 'rel'))
+})
+
+test('install.sh и uninstall.sh: защита папки (is_ours, list_entries, only_keep, KEEP) не разошлась', () => {
+  // Копии намеренно две — скрипты приходят по одной ссылке и не могут подключать друг друга, —
+  // поэтому расхождение ловит тест: иначе удаление и установка по-разному решали бы, чья папка.
+  const install = readFileSync(join(ROOT, 'install.sh'), 'utf8')
+  const uninstall = readFileSync(join(ROOT, 'uninstall.sh'), 'utf8')
+  for (const header of ['is_ours() {', 'list_entries() {', 'only_keep() {']) {
+    assert.equal(functionText(uninstall, header), functionText(install, header), header)
+  }
+  const keep = (text: string) => text.split('\n').find((line) => line.startsWith('KEEP='))
+  assert.ok(keep(install))
+  assert.equal(keep(uninstall), keep(install))
 })

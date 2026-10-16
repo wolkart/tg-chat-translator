@@ -38,3 +38,16 @@ export function write(path: string, text: string): void {
 export function tempDir(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix))
 }
+
+/**
+ * Текст функции скрипта — от строки с заголовком до первой строки, равной «}». Нужен стражам
+ * от расхождения копий: одна и та же защита папки живёт в паре install/uninstall.
+ */
+export function functionText(source: string, header: string): string {
+  const lines = source.split('\n')
+  const start = lines.findIndex((line) => line.startsWith(header))
+  if (start < 0) throw new Error(`нет функции: ${header}`)
+  const end = lines.indexOf('}', start)
+  if (end < 0) throw new Error(`функция не закрыта: ${header}`)
+  return lines.slice(start, end + 1).join('\n')
+}

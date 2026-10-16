@@ -27,7 +27,8 @@ function Fail($text) {
 
 function Test-Ours($Path) {
   $package = Join-Path $Path 'package.json'
-  # Папка с .git — клон для разработки, а не установка: её удалять нельзя.
+  # Папка с .git — клон для разработки, а не установка: обновление снесло бы историю и
+  # незакоммиченное.
   (-not (Test-Path -LiteralPath (Join-Path $Path '.git'))) -and (Test-Path -LiteralPath (Join-Path $Path 'src/main.ts')) -and (Test-Path -LiteralPath $package) -and
     ((Get-Content -LiteralPath $package -Raw) -match '"name": "tg-chat-translator"')
 }
@@ -36,11 +37,8 @@ function Test-Ours($Path) {
 # могла оборваться, успев записать .env с токеном, и «Ничего не найдено» оставило бы его на
 # диске. Пустую папку своей не считаем.
 function Test-OnlyKeep($Path) {
-  $keep = @('.env', 'data', 'node')
   $ignored = @('desktop.ini', 'Thumbs.db')
-  $items = @(Get-ChildItem -LiteralPath $Path -Force)
-  if ($items.Count -eq 0) { return $false }
-  $foreign = @($items | Where-Object { ($keep -notcontains $_.Name) -and ($ignored -notcontains $_.Name) })
+  $foreign = @(Get-ChildItem -LiteralPath $Path -Force | Where-Object { ($Keep -notcontains $_.Name) -and ($ignored -notcontains $_.Name) })
   $foreign.Count -eq 0
 }
 

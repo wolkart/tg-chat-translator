@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { tempDir, write } from './helpers.ts'
+import { functionText, tempDir, write } from './helpers.ts'
 
 /**
  * Windows-скрипты. Живьём они проверяются на Windows; здесь — то, что можно без неё:
@@ -216,3 +216,12 @@ test('Stop-Bot ждёт выхода процессов, а бот в install.ps
   assert.ok(stops[0]! > afterAnswers, 'Stop-Bot $Dir должен идти после setup.ts')
 })
 
+
+test('install.ps1 и uninstall.ps1: защита папки и остановка бота не разошлись', () => {
+  // Копии две, потому что скрипты приходят по одной ссылке и друг друга не подключают.
+  const install = readFileSync(join(ROOT, 'install.ps1'), 'utf8')
+  const uninstall = readFileSync(join(ROOT, 'uninstall.ps1'), 'utf8')
+  for (const name of ['Test-Ours', 'Test-OnlyKeep', 'Get-BotProcessPattern', 'Stop-Bot']) {
+    assert.equal(functionText(uninstall, `function ${name}(`), functionText(install, `function ${name}(`), name)
+  }
+})
