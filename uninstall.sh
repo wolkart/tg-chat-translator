@@ -14,6 +14,8 @@ DIR="${DIR:-$HOME/tg-chat-translator}"
 LABEL="com.github.wolkart.tg-chat-translator"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 RAW="https://raw.githubusercontent.com/wolkart/tg-chat-translator/main"
+# Терминал для вопроса: в тестах подменяется на /dev/null.
+TTY_INPUT="${UNINSTALL_TTY:-/dev/tty}"
 
 ASSUME_YES=0
 [ "${1:-}" = "--yes" ] && ASSUME_YES=1
@@ -27,8 +29,8 @@ die()  { printf '\n\033[31m✗ %s\033[0m\n\n' "$*" >&2; exit 1; }
 # Терминала нет — ответ пустой, и удаление отменяется: молча удалять нельзя.
 ask() {
   local answer=""
-  { printf '%s' "$1" > /dev/tty; } 2> /dev/null || printf '%s' "$1" >&2
-  { read -r answer < /dev/tty; } 2> /dev/null || true
+  { printf '%s' "$1" > "${TTY_INPUT}"; } 2> /dev/null || printf '%s' "$1" >&2
+  { read -r answer < "${TTY_INPUT}"; } 2> /dev/null || true
   printf '%s' "$answer"
 }
 
@@ -87,10 +89,13 @@ uninstall_mac() {
   [ "$folder" = 1 ] && printf '  папка       %s  (вместе с .env и базой)\n' "$DIR"
 
   # Копия — своим же Node из папки бота: VACUUM INTO даёт целую базу, даже пока бот пишет.
-  if [ "$folder" = 1 ] && [ -f "$DIR/data/translator.db" ] && [ -x "$DIR/node/bin/node" ]; then
+  # Если папка наша и база есть, пытаемся сделать копию, если Node доступен.
+  if [ "$folder" = 1 ] && [ -f "$DIR/data/translator.db" ]; then
     BACKUP=$(backup_path)
     printf '\n'
-    (cd "$DIR" && ./node/bin/node src/install/backup.ts "$BACKUP" data/translator.db) > /dev/null 2>&1 || true
+    if [ -x "$DIR/node/bin/node" ]; then
+      (cd "$DIR" && ./node/bin/node src/install/backup.ts "$BACKUP" data/translator.db) > /dev/null 2>&1 || true
+    fi
     report_backup
   fi
 
@@ -163,15 +168,22 @@ uninstall_linux() {
   [ -n "$networks" ] && $DOCKER network ls --filter "$filter" --format '  сеть       {{.Name}}'
   [ "$folder" = 1 ] && printf '  папка      %s  (вместе с .env)\n' "$DIR"
 
-  if [ -n "$volumes" ] && [ -n "$images" ]; then
+  # Пытаемся сделать копию: если том есть, пытаемся, если образ есть; иначе предупреждаем.
+  if [ -n "$volumes" ]; then
     BACKUP=$(backup_path)
     printf '\n'
-    # Одноразовый контейнер из своего же образа: том подключается к нему, а работает ли
-    # бот сейчас — неважно, VACUUM INTO снимет целую копию. root — чтобы записать в $HOME.
-    $DOCKER run --rm --user root \
-      -v "$(printf '%s' "$volumes" | head -n 1):/app/data" -v "$(dirname "$BACKUP"):/out" \
-      "$PROJECT-translator" node src/install/backup.ts "/out/$(basename "$BACKUP")" data/translator.db \
-      > /dev/null 2>&1 || true
+    if [ -n "$images" ]; then
+      # Одноразовый контейнер из своего же образа: том подключается к нему, а работает ли
+      # бот сейчас — неважно, VACUUM INTO снимет целую копию. root — чтобы записать в $HOME.
+      $DOCKER run --rm --user root \
+        -v "$(printf '%s' "$volumes" | head -n 1):/app/data" -v "$(dirname "$BACKUP"):/out" \
+        "$PROJECT-translator" node src/install/backup.ts "/out/$(basename "$BACKUP")" data/translator.db \
+        > /dev/null 2>&1 || true
+      # Если копия создана под sudo, исправляем права: контейнер пишет от root.
+      if [ -n "$SUDO" ] && [ -e "$BACKUP" ]; then
+        $SUDO chown "$(id -u):$(id -g)" "$BACKUP" 2> /dev/null || true
+      fi
+    fi
     report_backup
   fi
 

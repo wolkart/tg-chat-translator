@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,7 +9,7 @@ import { DatabaseSync } from 'node:sqlite'
 
 /**
  * uninstall.sh на Mac — целиком, но в подменённой домашней папке: бот, его база и файл
- * автозапуска — во временной папке. launchctl bootout на несуществующее задание безвреден.
+ * автозапуска — во временной папке. launchctl подменяется на stub: настоящий не вызывается.
  */
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const skip = process.platform !== 'darwin'
@@ -17,6 +17,20 @@ const skip = process.platform !== 'darwin'
 function write(path: string, text: string): void {
   mkdirSync(join(path, '..'), { recursive: true })
   writeFileSync(path, text)
+}
+
+/** Заглушка launchctl: логирует вызовы, выход 1 для 'print', 0 иначе. */
+function fakeLaunchctl(): { bin: string; logFile: string } {
+  const bin = mkdtempSync(join(tmpdir(), 'translator-launchctl-'))
+  const logFile = join(bin, 'launchctl.log')
+  const script = `#!/bin/bash
+echo "$@" >> "${logFile}"
+[ "$1" = "print" ] && exit 1
+exit 0`
+  const exe = join(bin, 'launchctl')
+  writeFileSync(exe, script)
+  chmodSync(exe, 0o755)
+  return { bin, logFile }
 }
 
 /** Домашняя папка с установленным ботом: свой Node (ссылка на текущий), база, автозапуск. */
@@ -38,11 +52,13 @@ function homeWithBot() {
   return { home, dir }
 }
 
-function uninstall(home: string, args: string[] = []) {
-  return spawnSync('bash', [join(ROOT, 'uninstall.sh'), ...args], {
+function uninstall(home: string, args: string[] = [], env: Record<string, string> = {}) {
+  const { bin, logFile } = fakeLaunchctl()
+  const run = spawnSync('bash', [join(ROOT, 'uninstall.sh'), ...args], {
     encoding: 'utf8',
-    env: { ...process.env, HOME: home, DIR: join(home, 'tg-chat-translator') },
+    env: { ...process.env, HOME: home, DIR: join(home, 'tg-chat-translator'), PATH: `${bin}:${process.env.PATH}`, UNINSTALL_TTY: '/dev/null', ...env },
   })
+  return { status: run.status, stdout: run.stdout, stderr: run.stderr, logFile }
 }
 
 test('uninstall.sh: синтаксис bash, переменные перед русским текстом — в скобках', { skip: process.platform === 'win32' }, () => {
@@ -54,8 +70,8 @@ test('uninstall.sh: синтаксис bash, переменные перед р�
 
 test('спека: удаление с Mac — копия базы с предупреждением, автозапуска и папки нет', { skip }, () => {
   const { home, dir } = homeWithBot()
-  const run = uninstall(home, ['--yes'])
-  assert.equal(run.status, 0, run.stderr)
+  const result = uninstall(home, ['--yes'])
+  assert.equal(result.status, 0, result.stderr)
   assert.equal(existsSync(dir), false)
   assert.equal(existsSync(join(home, 'Library/LaunchAgents/com.github.wolkart.tg-chat-translator.plist')), false)
   const backups = readdirSync(home).filter((name) => /^tg-chat-translator-backup-.*\.db$/.test(name))
@@ -63,31 +79,47 @@ test('спека: удаление с Mac — копия базы с преду�
   const copy = new DatabaseSync(join(home, backups[0]!), { readOnly: true })
   assert.deepEqual({ ...copy.prepare('SELECT value FROM settings').get() }, { value: 'sk-or-v1-test' })
   copy.close()
-  assert.match(run.stdout, /Внутри ключ модели — храните этот файл как пароль/)
-  assert.match(run.stdout, /cp ".*tg-chat-translator-backup-.*\.db"/)
+  assert.match(result.stdout, /Внутри ключ модели — храните этот файл как пароль/)
+  assert.match(result.stdout, /cp ".*tg-chat-translator-backup-.*\.db"/)
+  // Проверка, что launchctl bootout был вызван (из лога заглушки)
+  const log = readFileSync(result.logFile, 'utf8')
+  assert.match(log, /bootout.*com\.github\.wolkart\.tg-chat-translator/)
 })
 
-test('спека: ответ не «удалить» (здесь — нет терминала) — ничего не удалено, копии нет', { skip }, () => {
+test('спека: пустой ответ вместо «удалить» — ничего не удалено, копии нет', { skip }, () => {
   const { home, dir } = homeWithBot()
-  const run = uninstall(home)
-  assert.equal(run.status, 1)
-  assert.match(run.stderr, /Отменено\. Ничего не тронуто\./)
+  const result = uninstall(home)
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /Отменено\. Ничего не тронуто\./)
   assert.ok(existsSync(join(dir, 'data/translator.db')))
   assert.ok(existsSync(join(home, 'Library/LaunchAgents/com.github.wolkart.tg-chat-translator.plist')))
   assert.deepEqual(readdirSync(home).filter((name) => name.includes('backup')), [])
 })
 
+test('спека: база есть, Node нет — предупреждение о неудачной копии', { skip }, () => {
+  const { home, dir } = homeWithBot()
+  // Удаляем Node, оставляя базу
+  const nodeDir = join(dir, 'node')
+  if (existsSync(nodeDir)) {
+    spawnSync('rm', ['-rf', nodeDir])
+  }
+  const result = uninstall(home, ['--yes'])
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(existsSync(dir), false)
+  assert.match(result.stdout, /Копию настроек снять не удалось/)
+})
+
 test('спека: удалять нечего — «Ничего не найдено», код 0', { skip }, () => {
   const home = mkdtempSync(join(tmpdir(), 'translator-home-'))
-  const run = uninstall(home, ['--yes'])
-  assert.equal(run.status, 0)
-  assert.match(run.stdout, /Ничего не найдено — бот на этой машине не стоит/)
+  const result = uninstall(home, ['--yes'])
+  assert.equal(result.status, 0)
+  assert.match(result.stdout, /Ничего не найдено — бот на этой машине не стоит/)
 })
 
 test('uninstall.sh: чужая папка с тем же именем не удаляется', { skip }, () => {
   const home = mkdtempSync(join(tmpdir(), 'translator-home-'))
   write(join(home, 'tg-chat-translator/заметки.txt'), 'не удалять')
-  const run = uninstall(home, ['--yes'])
-  assert.equal(run.status, 0)
+  const result = uninstall(home, ['--yes'])
+  assert.equal(result.status, 0)
   assert.equal(readFileSync(join(home, 'tg-chat-translator/заметки.txt'), 'utf8'), 'не удалять')
 })

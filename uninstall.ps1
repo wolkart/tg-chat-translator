@@ -41,7 +41,7 @@ function Get-BackupPath {
 
 # Надзиратель — первым, иначе он поднимет node снова.
 function Stop-Bot($Target) {
-  $pattern = [regex]::Escape($Target)
+  $pattern = [regex]::Escape($Target.TrimEnd('\\', '\/') + '\\')
   foreach ($name in @('powershell.exe', 'node.exe')) {
     Get-CimInstance Win32_Process -Filter "Name='$name'" |
       Where-Object { $_.CommandLine -and $_.CommandLine -match $pattern } |
