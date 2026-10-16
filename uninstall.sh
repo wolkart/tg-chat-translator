@@ -252,8 +252,17 @@ $(printf '\033[32m✓ Готово. Бот снят с этого сервера
 
 Поставить заново:
   curl -fsSL $RAW/install.sh | bash
-
 TEXT
+  if [ -n "$BACKUP" ]; then
+    # База на сервере живёт в томе Docker, а не в папке, поэтому вернуть копию — это записать
+    # файл в новый том: одноразовый контейнер от root (том создан им), потом права для бота.
+    cat <<TEXT
+
+Вернуть настройки — после новой установки, одной командой из папки бота:
+  cd ${DIR} && ${DOCKER} compose stop && ${DOCKER} compose run --rm --no-deps --user root -v "${BACKUP}:/in.db:ro" translator sh -c 'cp /in.db /app/data/translator.db && chown node:node /app/data/translator.db' && ${DOCKER} compose start
+TEXT
+  fi
+  printf '\n'
 }
 
 main() {

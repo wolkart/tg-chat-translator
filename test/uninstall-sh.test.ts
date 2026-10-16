@@ -132,3 +132,12 @@ test('uninstall.sh: пустая папка с тем же именем свое
   const result = uninstall(home, ['--yes'])
   assert.match(result.stdout, /Ничего не найдено/)
 })
+
+test('uninstall.sh: ветка сервера печатает команду возврата копии в том Docker', () => {
+  // Ветка Linux ходит в Docker, в тесте её не запустить — проверяем по тексту скрипта.
+  const text = readFileSync(join(ROOT, 'uninstall.sh'), 'utf8')
+  const linux = text.slice(text.indexOf('uninstall_linux()'))
+  assert.match(linux, /compose stop && \$\{DOCKER\} compose run --rm --no-deps --user root -v "\$\{BACKUP\}:\/in\.db:ro" translator sh -c/)
+  assert.match(linux, /chown node:node \/app\/data\/translator\.db' && \$\{DOCKER\} compose start/)
+  assert.match(linux, /cd \$\{DIR\} && /)
+})
