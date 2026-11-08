@@ -129,3 +129,24 @@ test('спека: подключение из старой базы чужого
   assert.equal(tg.callsOf('sendText').length, 0)
   assert.equal((await ensureConnection(deps, CONNECTION_ID)).allowed, false)
 })
+
+test('спека: база из копии, где владелец был записан посторонним, — после сообщения ответы снова работают', async () => {
+  const { deps, store, translator } = setupDeps()
+  store.saveConnection(
+    { id: CONNECTION_ID, ownerId: OWNER_ID, userChatId: OWNER_ID, canReply: true, isEnabled: true, allowed: false },
+    deps.now(),
+  )
+  await onBusinessMessage(deps, messageFixture('business-message-peer-text'))
+  assert.equal(translator.calls.length, 1)
+  assert.equal(store.ownerConnection(OWNER_ID)?.id, CONNECTION_ID)
+})
+
+test('спека: база из копии чужого владельца — после сообщения его подключение больше не считается рабочим', async () => {
+  const { deps, store } = setupDeps()
+  store.saveConnection(
+    { id: CONNECTION_ID, ownerId: STRANGER_ID, userChatId: STRANGER_ID, canReply: true, isEnabled: true, allowed: true },
+    deps.now(),
+  )
+  await onBusinessMessage(deps, messageFixture('business-message-peer-text'))
+  assert.equal(store.ownerConnection(STRANGER_ID), undefined)
+})
